@@ -1,0 +1,16 @@
+[project]
+name = "peter-the-fly"
+version = "0.1.0"
+description = "Peter the Fly - a conversation running on the real FlyWire FAFB v783 connectome"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]
+markers = [
+  "realdata: requires the cached official FlyWire data (skipped when absent)",
+]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

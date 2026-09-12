@@ -1,0 +1,24 @@
+# FlyWire raw cache (large, re-downloadable, CC BY-NC licensed)
+data/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node / build
+node_modules/
+dist/
+tests/.brain.build.mjs
+.esbuild/
+
+# NOTE: public/brain/ artifacts SHOULD be committed (or built in CI) so
+# the deployed site always ships a real brain. If you prefer CI-only builds,
+# uncomment the next line and ensure the CI pipeline builds them.
+# public/brain/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini

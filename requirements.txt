@@ -1,0 +1,7 @@
+# Python toolchain (offline build step only - not needed at runtime in the browser)
+numpy>=1.26
+pandas>=2.1
+pyarrow>=15.0        # feather reading of the official FlyWire files
+scipy>=1.13
+requests>=2.31
+pytest>=8.0

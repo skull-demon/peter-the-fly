@@ -1,0 +1,14 @@
+name = "peter-the-fly"
+compatibility_date = "2026-01-01"
+
+# Static site: no Workers functions needed. The "backend" is the browser
+# runtime (src/brain) plus the prebuilt brain artifacts in public/brain.
+[assets]
+directory = "./dist"
+
+# Deploy:
+#   npm run build && npx wrangler pages deploy dist
+# Or connect the repo in the Cloudflare Pages dashboard:
+#   build command: npm run build
+#   output dir:    dist
+# (Commit public/brain/* or build them in CI first - see README.)
