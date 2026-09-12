@@ -37,11 +37,15 @@ export default function DoomModal({ open, onClose }: Props) {
   const loopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameCanvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Load Peter runtime on mount
+  // Load Peter runtime on mount and paint initial frame
   useEffect(() => {
     if (open) {
       loadPeterRuntime().then(setRuntime).catch(() => {});
       brain.cameraPreset("CENTRAL_COMPLEX");
+      const timer = setTimeout(() => {
+        drawDoomCanvas([0.2, 0.4, 0.8, 0.5, 0.2], "READY", 0);
+      }, 50);
+      return () => clearTimeout(timer);
     }
   }, [open]);
 

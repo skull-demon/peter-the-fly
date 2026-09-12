@@ -74,7 +74,7 @@ export default function LeftPanel({
       </header>
 
       {/* Main specimen area: Toggle between Bench photo and live 3D brain */}
-      <div className="bench-visual-wrapper" style={{ flex: 1, position: "relative", minHeight: 340, overflow: "hidden" }}>
+      <div className="bench-visual-wrapper" style={{ flex: 1, position: "relative", overflow: "hidden", minHeight: 0 }}>
         {viewMode === "brain3d" ? (
           <InlineBrainView
             telemetry={telemetry ?? null}
@@ -104,7 +104,7 @@ export default function LeftPanel({
             </button>
           ) : (
             <button
-              className="action-pill-button"
+              className="action-pill-button primary-pill"
               onClick={() => setViewMode("bench")}
               title="Switch back to bench photograph"
             >
@@ -123,17 +123,25 @@ export default function LeftPanel({
             </button>
           )}
 
-          <button className="text-control inspect-control" onClick={onInspect}>
-            Inspect in 3D <ArrowIcon diagonal />
-          </button>
+          {onOpenAgi && (
+            <button
+              id="agi-workspace-trigger"
+              className="action-pill-button agi-pill"
+              onClick={onOpenAgi}
+              title="Open FlyWire Cognitive AGI Architecture Workspace"
+            >
+              <Sparkles size={12} />
+              <span>AGI</span>
+            </button>
+          )}
         </span>
       </div>
 
       {telemetry && (
         <p className="bench-activity-note eyebrow">
           LAST TRANSMISSION · {telemetry.spike_count.toLocaleString()} SPIKES · {telemetry.active_neurons.toLocaleString()} NEURONS ACTIVE ·{" "}
-          <button className="linklike see-neurons-btn" onClick={handleShow3DBrain}>
-            SEE IN 3D
+          <button className="see-neurons-btn" onClick={handleShow3DBrain}>
+            SEE IN 3D →
           </button>
         </p>
       )}

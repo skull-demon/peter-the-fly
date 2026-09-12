@@ -42,7 +42,7 @@ export function SpikePulses() {
       dummy.scale.setScalar((0.08 + spike.intensity * 0.11) * (0.65 + envelope));
       dummy.updateMatrix();
       mesh.setMatrixAt(index, dummy.matrix);
-      mesh.setColorAt(index, new THREE.Color(spike.intensity > 0.78 ? "#fffbd1" : "#74fff0").multiplyScalar(1.8));
+      mesh.setColorAt(index, new THREE.Color(spike.intensity > 0.78 ? "#fff5d6" : "#e59a44").multiplyScalar(1.8));
     }
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -88,7 +88,7 @@ export function SynapsePulses() {
       dummy.scale.setScalar(0.09 + (event.intensity ?? 0.7) * 0.12);
       dummy.updateMatrix();
       mesh.setMatrixAt(index, dummy.matrix);
-      mesh.setColorAt(index, new THREE.Color(event.weight < 0 ? "#ff6b9e" : "#ffe08a").multiplyScalar(2));
+      mesh.setColorAt(index, new THREE.Color(event.weight < 0 ? "#b35b44" : "#f0c674").multiplyScalar(2));
     }
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;

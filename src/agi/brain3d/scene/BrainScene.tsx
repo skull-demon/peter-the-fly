@@ -90,7 +90,7 @@ function Atmosphere() {
   useFrame((_, delta) => { if (ref.current) ref.current.rotation.y += delta * 0.006; });
   return (
     <points ref={ref} geometry={geometry}>
-      <pointsMaterial color="#6a8fa1" size={0.013} transparent opacity={0.28} depthWrite={false} blending={THREE.AdditiveBlending} />
+      <pointsMaterial color="#a68c6d" size={0.013} transparent opacity={0.22} depthWrite={false} blending={THREE.AdditiveBlending} />
     </points>
   );
 }
@@ -100,11 +100,11 @@ function BrainShell() {
     <group>
       <mesh position={[-1.95, 0.1, -0.12]} scale={[2.7, 3.15, 2.15]}>
         <icosahedronGeometry args={[1, 4]} />
-        <meshPhysicalMaterial color="#193948" emissive="#102e3c" emissiveIntensity={0.18} transparent opacity={0.022} depthWrite={false} side={THREE.BackSide} />
+        <meshPhysicalMaterial color="#2d2218" emissive="#1f160e" emissiveIntensity={0.15} transparent opacity={0.024} depthWrite={false} side={THREE.BackSide} />
       </mesh>
       <mesh position={[1.95, 0.1, -0.12]} scale={[2.7, 3.15, 2.15]}>
         <icosahedronGeometry args={[1, 4]} />
-        <meshPhysicalMaterial color="#193948" emissive="#102e3c" emissiveIntensity={0.18} transparent opacity={0.022} depthWrite={false} side={THREE.BackSide} />
+        <meshPhysicalMaterial color="#2d2218" emissive="#1f160e" emissiveIntensity={0.15} transparent opacity={0.024} depthWrite={false} side={THREE.BackSide} />
       </mesh>
     </group>
   );
@@ -136,13 +136,13 @@ export function BrainScene() {
         brain.selectRegion(null);
       }}
     >
-      <color attach="background" args={["#020607"]} />
-      <fogExp2 attach="fog" args={["#020607", 0.027]} />
+      <color attach="background" args={["#0c0a08"]} />
+      <fogExp2 attach="fog" args={["#0c0a08", 0.026]} />
       <PerspectiveCamera makeDefault fov={38} near={0.05} far={80} position={[0, 0.25, 15.5]} />
-      <ambientLight intensity={0.25} />
-      <pointLight position={[0, 5, 8]} color="#81dfdc" intensity={9} distance={24} decay={2} />
-      <pointLight position={[-8, 1, 2]} color="#4f7cff" intensity={5} distance={18} decay={2} />
-      <pointLight position={[8, -1, 1]} color="#c0649d" intensity={4} distance={18} decay={2} />
+      <ambientLight intensity={0.35} color="#eeddc0" />
+      <pointLight position={[0, 5, 8]} color="#f5dfb8" intensity={8} distance={24} decay={2} />
+      <pointLight position={[-8, 1, 2]} color="#d4ad71" intensity={5.5} distance={18} decay={2} />
+      <pointLight position={[8, -1, 1]} color="#c97b4c" intensity={4.5} distance={18} decay={2} />
       <group key={modelRevision}>
         <BrainShell />
         <RegionLayer />

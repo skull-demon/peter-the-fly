@@ -57,7 +57,7 @@ export class BrainRuntime {
     mode: "NEURAL_ACTIVITY",
     showLabels: true,
     showRegions: true,
-    demoMode: true,
+    demoMode: false,
     eventCount: 0,
     eventsPerSecond: 0,
     fps: 60,
