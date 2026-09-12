@@ -23,3 +23,7 @@ tests/.brain.build.mjs
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ViZDoom runtime droppings
+_vizdoom.ini
+vizdoom.ini
