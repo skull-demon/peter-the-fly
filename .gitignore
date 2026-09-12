@@ -1,5 +1,6 @@
-# FlyWire raw cache (large, re-downloadable, CC BY-NC licensed)
-data/
+# FlyWire raw cache (large, re-downloadable, CC BY-NC licensed).
+# Anchor to repo root: a bare `data/` would also exclude src/data/!
+/data/
 
 # Python
 .venv/
