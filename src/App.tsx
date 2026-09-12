@@ -16,10 +16,16 @@ import { stimulusForText } from "./brain/spikegen";
 import type { PeterTelemetry } from "./brain/talk";
 import { hydrateSharedBrain } from "./data/flyBrain";
 import { initBuzzUnlock, setSoundEnabled } from "./utils/buzz";
+import AgiWorkspace from "./agi/AgiWorkspace";
+import DoomModal from "./agi/DoomModal";
+import { streamSimResultTo3D } from "./agi/simBridge";
+import { Sparkles, Gamepad2 } from "lucide-react";
 
 const LabScene3D = lazy(() => import("./three/LabScene3D"));
 
 export default function App() {
+  const [appMode, setAppMode] = useState<"lab" | "agi">("lab");
+  const [doomOpen, setDoomOpen] = useState(false);
   const [active, setActive] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -53,6 +59,7 @@ export default function App() {
 
   const handleSim = (s: SimResult) => {
     setSim(s);
+    streamSimResultTo3D(s);
   };
 
   const toggleSound = () => {
@@ -121,6 +128,18 @@ export default function App() {
     );
   }
 
+  if (appMode === "agi") {
+    return (
+      <>
+        <AgiWorkspace
+          onReturnToLab={() => setAppMode("lab")}
+          onOpenDoom={() => setDoomOpen(true)}
+        />
+        <DoomModal open={doomOpen} onClose={() => setDoomOpen(false)} />
+      </>
+    );
+  }
+
   return (
     <div className={`app-shell ${motion ? "motion-on" : "motion-off"}`} ref={shellRef}>
       <header className="masthead">
@@ -129,9 +148,27 @@ export default function App() {
           <span>PETER THE FLY</span>
         </a>
         <div className="masthead-center" aria-hidden="true">A most unusual conversation.</div>
-        <button className="text-control notes-control" onClick={() => setNotesOpen(true)}>
-          Field notes <ArrowIcon diagonal />
-        </button>
+        <div className="masthead-controls">
+          <button
+            className="masthead-mode-btn doom-nav-btn"
+            onClick={() => setDoomOpen(true)}
+            title="Watch Peter play DOOM using real brain decisions"
+          >
+            <Gamepad2 size={13} />
+            <span>PLAY DOOM</span>
+          </button>
+          <button
+            className="masthead-mode-btn agi-nav-btn"
+            onClick={() => setAppMode("agi")}
+            title="Enter full AGI Workspace mode"
+          >
+            <Sparkles size={13} />
+            <span>AGI MODE</span>
+          </button>
+          <button className="text-control notes-control" onClick={() => setNotesOpen(true)}>
+            Field notes <ArrowIcon diagonal />
+          </button>
+        </div>
       </header>
 
       <main className="workspace" id="flybrain">
@@ -141,6 +178,8 @@ export default function App() {
           sceneRef={sceneRef}
           onInspect={() => setInspectorOpen(true)}
           onOpenBrain={() => setViewerOpen(true)}
+          onOpenAgi={() => setAppMode("agi")}
+          onOpenDoom={() => setDoomOpen(true)}
           brainStatus={brainStatus}
           brainCounts={brainCounts}
           sim={sim}
@@ -202,6 +241,8 @@ export default function App() {
         lastPrompt={lastExchange?.prompt ?? null}
         lastReply={lastExchange?.reply ?? null}
       />
+
+      <DoomModal open={doomOpen} onClose={() => setDoomOpen(false)} />
 
       <Dialog open={inspectorOpen} onClose={() => setInspectorOpen(false)} title="Inspect the apparatus in 3D" className="inspection-dialog">
         <div className="inspection-heading">

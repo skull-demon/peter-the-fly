@@ -108,17 +108,26 @@ If the brain bundle (`public/brain/peter.brain`) fails to load, Peter states tha
 he cannot think and that no simulation ran — the codebase contains **no
 scripted answers at all**.
 
-## 6. DOOM closed-loop simulation (Architecture & Status)
+## 6. DOOM closed-loop simulation & Live 3D Neural Viewport
 
-Peter includes a complete closed-loop motor control pipeline for playing classic DOOM (`src/brain/doom.ts`, `python/brainpack/doomtrain.py`):
+Peter includes a complete interactive closed-loop motor control pipeline for playing classic DOOM (`src/brain/doom.ts`, `src/agi/DoomModal.tsx`, `python/brainpack/doomtrain.py`):
 
 - **Retina:** Game frames are mapped into 5 horizontal horizon sectors (`grayFromRgba`, `sectorBrightness`).
 - **Connectome stimulation:** Sector luminance drives optic input neurons into the FlyWire LIF simulation.
 - **Descending motor readout:** Spike counts across 30 real descending neurons in 4 post-stimulus windows form 4 action arms (`TURN_LEFT`, `TURN_RIGHT`, `FORWARD`, `SHOOT`).
-- **Policy learning:** An epsilon-greedy bandit algorithm updates running action value estimates with decaying exploration rate, persisting across sessions.
-- **Status:** The mathematical closed-loop engine and DOSBox/js-dos assets (`public/doom/peter-doom.jsdos`, `public/doom/vendor/`) are fully implemented and verified via automated parity tests (`tests/doomproof.mjs`). However, the interactive DOOM game viewport is an experimental research module and is **not mounted in the primary chat UI**.
+- **Policy learning:** An epsilon-greedy bandit algorithm updates running action value estimates with decaying exploration rate, persisting across sessions in localStorage.
+- **Live 3D Neural Viewport:** Clicking **"PLAY DOOM"** launches the integrated retro viewport and side-by-side 3D connectome visualization (`src/agi/DoomModal.tsx`). Each step visualizes retina sector activation, Central Complex arbitration, motor descending firing, and reward-driven plasticity flashes in real-time 3D.
 
-## 7. Security and deployment protection
+## 7. Integrated AGI Mode & Live 3D Connectome Replacement
+
+The frontend features a dedicated **AGI Workspace** and inline 3D brain integration (`src/agi/`):
+
+- **Inline 3D Connectome Replacement:** Clicking **"LIVE 3D NEURONS"** or **"SEE IN 3D"** in the left panel replaces the static bench apparatus photo with a full interactive 3D FlyWire connectome (`src/agi/brain3d/InlineBrainView.tsx`) directly in place. Users can filter by neuropil regions (`MEDULLA`, `LAMINA`, `LOBULA`, `LOBULA PLATE`, `MUSHROOM BODY`, `FAN-SHAPED BODY`, `CENTRAL COMPLEX`, `ANTENNAL LOBE`, `LATERAL HORN`, `PROTOCEREBRAL BRIDGE`, `NODULI`, `ELLIPSOID BODY`), orbit/zoom, and watch real LIF spikes illuminate in synchrony with speech.
+- **Dedicated AGI Workspace:** Clicking **"AGI MODE"** opens the cognitive cockpit (`src/agi/AgiWorkspace.tsx`), providing split-screen 3D connectome exploration with 7 visualization modes, live LIF membrane potential and spike telemetry, Hebbian memory inspection, targeted micro-stimulation controls, and single-neuron inspection.
+- **Real-Time LIF Bridge:** `src/agi/simBridge.ts` bridges the 2,200 LIF simulated neurons directly to 3D visual proxy neurons, rendering authentic firing waves and synapse transfers.
+
+
+## 8. Security and deployment protection
 
 When deployed on Cloudflare Pages, several hardening measures are enforced (`public/_headers`, `public/robots.txt`):
 
@@ -128,11 +137,11 @@ When deployed on Cloudflare Pages, several hardening measures are enforced (`pub
 - **Bot Crawling Restriction:** `public/robots.txt` disallows automated scrapers from ingesting the raw brain artifacts (`/brain/`).
 - **Zero Exposed Cloud Secrets:** 100% client-side computation with no third-party API keys or credentials exposed in the build.
 
-## 8. Deep Dive FAQ
+## 9. Deep Dive FAQ
 
 For explicit code-level answers regarding learning mechanisms, DOOM causality, plasticity limits, and infrastructural claims, please read the [Architectural FAQ](ARCHITECTURE_FAQ.md) (`docs/ARCHITECTURE_FAQ.md`).
 
-## 9. Verification suite
+## 10. Verification suite
 
 ```bash
 # Brain & simulation verification

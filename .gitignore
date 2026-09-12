@@ -28,3 +28,6 @@ desktop.ini
 # ViZDoom runtime droppings
 _vizdoom.ini
 vizdoom.ini
+
+# Local backup / source components kept locally, not pushed to repo
+PETERS BRAIN 3D/
