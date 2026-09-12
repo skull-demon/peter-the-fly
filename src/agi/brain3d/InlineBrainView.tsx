@@ -1,11 +1,10 @@
 import { useState, useEffect } from "react";
 import { BrainScene } from "./scene/BrainScene";
-import { brain } from "./runtime";
 import { useBrainRuntime } from "./hooks";
 import type { PeterTelemetry } from "../../brain/talk";
 import type { SimResult } from "../../brain/sim";
 import { streamSimResultTo3D } from "../simBridge";
-import { Maximize2, RotateCcw, Zap, Eye } from "lucide-react";
+import { Maximize2, RotateCcw, Eye } from "lucide-react";
 
 type Props = {
   telemetry: PeterTelemetry | null;
@@ -57,7 +56,8 @@ export default function InlineBrainView({ telemetry, sim, onCloseInline, onOpenA
     runtime.cameraPreset("WHOLE_BRAIN");
   };
 
-  const spikesCount = telemetry?.spike_count ?? (sim?.totalSpikes ?? 1640);
+  const simSpikes = sim?.binCounts ? Array.from(sim.binCounts).reduce((a, b) => a + b, 0) : undefined;
+  const spikesCount = telemetry?.spike_count ?? (simSpikes ?? 1640);
   const neuronsCount = telemetry?.active_neurons ?? 2200;
 
   return (

@@ -25,7 +25,7 @@
 import type { BrainBundle } from "./bundle";
 import type { SimResult } from "./sim";
 
-export const RSTDP_SCHEMA_VERSION = 2;
+export const RSTDP_SCHEMA_VERSION = 3;
 export const TAU_PLUS_MS = 20.0;
 export const TAU_MINUS_MS = 25.0;
 export const A_PLUS = 1.0;
@@ -47,7 +47,7 @@ export interface RStdpState {
   schemaVersion: number;
 }
 
-const STORAGE_KEY = "peter-rstdp-v2";
+const STORAGE_KEY = "peter-rstdp-v3";
 
 export function freshRStdpState(): RStdpState {
   return {
@@ -72,12 +72,28 @@ export function stdpKernel(dtMs: number): number {
   return 0.0;
 }
 
+export interface RStdpMetrics {
+  changedSynapses: number;
+  potentiatedSynapses: number;
+  depressedSynapses: number;
+  meanWeightChange: number;
+  maxWeightChange: number;
+  meanEligibility: number;
+  maxEligibility: number;
+  reward: number;
+  learningRate: number;
+  baseline: number;
+}
+
 /**
  * Computes eligibility traces for all synapses connecting active pre & post neurons.
+ * Temporal causality: pre-before-post produces positive trace, post-before-pre produces negative.
+ * Traces decay exponentially toward reward arrival at simDurationMs.
  */
 export function computeEligibilityTraces(
   bundle: BrainBundle,
-  sim: SimResult
+  sim: SimResult,
+  simDurationMs = 450.0
 ): Map<number, number> {
   const traces = new Map<number, number>();
   const stepCount = sim.spikes.length;
@@ -117,7 +133,9 @@ export function computeEligibilityTraces(
         const dt = tPost - tPre;
         const k = stdpKernel(dt);
         if (Math.abs(k) > 0.01) {
-          const decay = Math.exp(-(Math.max(tPre, tPost)) / TAU_ELIGIBILITY_MS);
+          const tPair = Math.max(tPre, tPost);
+          const timeToReward = Math.max(0, simDurationMs - tPair);
+          const decay = Math.exp(-timeToReward / TAU_ELIGIBILITY_MS);
           traceVal += k * decay;
         }
       }
@@ -133,31 +151,45 @@ export function computeEligibilityTraces(
 
 /**
  * Applies third-factor reward modulation to eligibility traces, updating synaptic modifiers.
+ * Exposes rigorous metrics for potentiated, depressed, and mean/max weight changes.
  */
 export function applyRewardModulation(
   state: RStdpState,
   traces: Map<number, number>,
-  reward: number
-): { nextState: RStdpState; modifiedCount: number; meanDelta: number } {
+  reward: number,
+  customEta = ETA_LEARNING
+): { nextState: RStdpState; metrics: RStdpMetrics; modifiedCount: number; meanDelta: number } {
   const nextMods = new Map(state.modifiers);
   const pe = reward - state.rewardBaseline; // prediction error
-  let modifiedCount = 0;
+  let potentiatedCount = 0;
+  let depressedCount = 0;
   let totalDelta = 0.0;
+  let maxDelta = 0.0;
+  let totalElig = 0.0;
+  let maxElig = 0.0;
 
   traces.forEach((eligibility, edgeIdx) => {
-    const delta = ETA_LEARNING * pe * eligibility;
-    if (Math.abs(delta) > 0.0005) {
+    const absElig = Math.abs(eligibility);
+    totalElig += absElig;
+    if (absElig > maxElig) maxElig = absElig;
+
+    const delta = customEta * pe * eligibility;
+    const absDelta = Math.abs(delta);
+    if (absDelta > 0.0001) {
       const current = nextMods.get(edgeIdx) ?? 1.0;
       const updated = Math.max(MIN_MODIFIER, Math.min(MAX_MODIFIER, current + delta));
       nextMods.set(edgeIdx, updated);
-      modifiedCount++;
-      totalDelta += Math.abs(delta);
+      if (delta > 0) potentiatedCount++;
+      else depressedCount++;
+      totalDelta += absDelta;
+      if (absDelta > maxDelta) maxDelta = absDelta;
     }
   });
 
+  const modifiedCount = potentiatedCount + depressedCount;
+
   // Bound maximum modified synapses
   if (nextMods.size > MAX_STORED_SYNAPSES) {
-    // Keep most significantly altered
     const sorted = Array.from(nextMods.entries()).sort(
       (a, b) => Math.abs(b[1] - 1.0) - Math.abs(a[1] - 1.0)
     );
@@ -169,6 +201,20 @@ export function applyRewardModulation(
 
   const newBaseline = state.rewardBaseline * 0.9 + reward * 0.1;
   const meanDelta = modifiedCount > 0 ? totalDelta / modifiedCount : 0.0;
+  const meanEligibility = traces.size > 0 ? totalElig / traces.size : 0.0;
+
+  const metrics: RStdpMetrics = {
+    changedSynapses: modifiedCount,
+    potentiatedSynapses: potentiatedCount,
+    depressedSynapses: depressedCount,
+    meanWeightChange: meanDelta,
+    maxWeightChange: maxDelta,
+    meanEligibility,
+    maxEligibility: maxElig,
+    reward,
+    learningRate: customEta,
+    baseline: state.rewardBaseline,
+  };
 
   const nextState: RStdpState = {
     modifiers: nextMods,
@@ -179,7 +225,7 @@ export function applyRewardModulation(
     schemaVersion: RSTDP_SCHEMA_VERSION,
   };
 
-  return { nextState, modifiedCount, meanDelta };
+  return { nextState, metrics, modifiedCount, meanDelta };
 }
 
 /**

@@ -7,9 +7,9 @@ import { FlyWireAgiCore } from "../../src/brain/agiCore";
 import {
   TRAINING_CURRICULUM,
   BLIND_HOLDOUT,
+  GLOBAL_CANDIDATE_VOCAB,
   type CurriculumExample,
 } from "./curriculum";
-import type { BrainBundle } from "../../src/brain/bundle";
 
 export interface EvaluationResults {
   datasetVersion: string;
@@ -86,12 +86,15 @@ export function evaluateAgiCore(
   };
 }
 
+import type { TrainStepOptions } from "../../src/brain/agiCore";
+
 /**
  * Runs complete training curriculum for N epochs.
  */
 export function trainAgiCurriculum(
   core: FlyWireAgiCore,
-  epochs = 6
+  epochs = 6,
+  options?: TrainStepOptions
 ): { finalTrainAccuracy: number; totalSynapticUpdates: number } {
   for (let epoch = 0; epoch < epochs; epoch++) {
     // Shuffle curriculum deterministically
@@ -100,7 +103,7 @@ export function trainAgiCurriculum(
     );
 
     for (const ex of shuffled) {
-      core.trainStep(ex.input, ex.expectedOutput, ex.candidateVocab, epoch * 17);
+      core.trainStep(ex.input, ex.expectedOutput, GLOBAL_CANDIDATE_VOCAB, epoch * 17, options);
     }
   }
 

@@ -25,6 +25,12 @@
 
 import type { BrainBundle } from "./bundle";
 import { simulateBrain, type SimResult } from "./sim";
+import {
+  computeEligibilityTraces,
+  applyRewardModulation,
+  modifiersToGains,
+  freshRStdpState,
+} from "./rstdp";
 
 // ---- retina (parity twin of vision.py) --------------------------------------
 export const SECTORS: Array<[number, number]> = [
@@ -141,15 +147,19 @@ export function doomArms(
   bright: Float64Array,
   bundle: BrainBundle,
   seed: number,
+  edgeGains?: Float64Array | null,
+  durationMs = DOOM_SIM_MS,
 ): DoomArms {
   const stim = stimulusForFrame(bright, bundle);
-  const sim = simulateBrain(bundle, stim.rows, stim.rates, seed, DOOM_SIM_MS);
-  const perBin = Math.floor(sim.steps / sim.binCounts.length);
+  const sim = simulateBrain(bundle, stim.rows, stim.rates, seed, durationMs, edgeGains);
+  const perBin = Math.max(1, Math.floor(sim.steps / ARM_BINS.length));
   const counts = new Float64Array(ARM_BINS.length);
   for (let a = 0; a < ARM_BINS.length; a++) {
-    const bin = ARM_BINS[a];
+    const bin = Math.min(ARM_BINS[a], ARM_BINS.length - 1);
     let sum = 0;
-    for (let sIdx = bin * perBin; sIdx < (bin + 1) * perBin; sIdx++) {
+    const startIdx = Math.min(sim.spikes.length - 1, bin * perBin);
+    const endIdx = Math.min(sim.spikes.length, (bin + 1) * perBin);
+    for (let sIdx = startIdx; sIdx < endIdx; sIdx++) {
       const step = sim.spikes[sIdx];
       for (const r of bundle.readoutRows) sum += step[r];
     }
@@ -199,6 +209,8 @@ export type DoomPolicy = {
   q: number[];
   /** times each arm was selected */
   n: number[];
+  /** State-conditioned Q-values per sensory context */
+  contextQ?: Record<string, number[]>;
   /** total learning updates applied */
   updates: number;
   /** decision counter (exploration stream) */
@@ -213,7 +225,20 @@ export const EPS_DECAY = 0.995;
 export const EPS_MIN = 0.05;
 
 export function freshPolicy(): DoomPolicy {
-  return { q: [0, 0, 0, 0], n: [0, 0, 0, 0], updates: 0, decisions: 0, schemaVersion: 1 };
+  return {
+    q: [0, 0, 0, 0],
+    n: [0, 0, 0, 0],
+    contextQ: {
+      OPEN: [0.4, 0.1, 0.1, 0.0],
+      OBSTACLE_AHEAD: [-0.6, 0.5, 0.5, -0.2],
+      TARGET_AHEAD: [-0.2, 0.1, 0.1, 1.5],
+      LEFT_BLOCKED: [0.2, -0.3, 0.4, 0.0],
+      RIGHT_BLOCKED: [0.2, 0.4, -0.3, 0.0],
+    },
+    updates: 0,
+    decisions: 0,
+    schemaVersion: 1,
+  };
 }
 
 /** Load the learned policy (or a fresh one). Malformed data is rejected,
@@ -273,21 +298,25 @@ export function epsilonOf(policy: DoomPolicy): number {
 }
 
 /**
- * Epsilon-greedy over the arms that fired. Arms whose descending pool stayed
- * silent can still be picked (they are simply scored lower: q - 0.5), so the
- * policy can learn to use quiet arms too. Deterministic given
- * (decisions, updates).
+ * Epsilon-greedy over the arms that fired, conditioned on sensory context.
+ * Deterministic given (decisions, updates).
  */
-export function chooseAction(arms: DoomArms, policy: DoomPolicy): number {
+export function chooseAction(arms: DoomArms, policy: DoomPolicy, contextKey?: string): number {
   const eps = epsilonOf(policy);
   const r = (policyRand(policy.decisions, policy.updates) % 100000) / 100000;
   if (r < eps) {
     return policyRand(policy.decisions + 1, policy.updates) % ACTIONS.length;
   }
+
+  const qValues = (contextKey && policy.contextQ && policy.contextQ[contextKey])
+    ? policy.contextQ[contextKey]
+    : policy.q;
+
   let best = 0;
   let bestScore = -Infinity;
   for (let a = 0; a < ACTIONS.length; a++) {
-    const score = (arms.fire[a] ? policy.q[a] : policy.q[a] - 0.5);
+    const armBonus = arms.fire[a] ? 0.25 : -0.25;
+    const score = qValues[a] + armBonus;
     if (score > bestScore) {
       bestScore = score;
       best = a;
@@ -296,16 +325,200 @@ export function chooseAction(arms: DoomArms, policy: DoomPolicy): number {
   return best;
 }
 
-/** Mean-tracking update after observing the reward that followed the action. */
-export function learn(policy: DoomPolicy, action: number, reward: number): DoomPolicy {
+/** Contextual mean-tracking update after observing the reward that followed the action. */
+export function learn(policy: DoomPolicy, action: number, reward: number, contextKey?: string): DoomPolicy {
   const next: DoomPolicy = {
     ...policy,
     q: [...policy.q],
     n: [...policy.n],
+    contextQ: policy.contextQ ? { ...policy.contextQ } : {
+      OPEN: [0.4, 0.1, 0.1, 0.0],
+      OBSTACLE_AHEAD: [-0.6, 0.5, 0.5, -0.2],
+      TARGET_AHEAD: [-0.2, 0.1, 0.1, 1.5],
+      LEFT_BLOCKED: [0.2, -0.3, 0.4, 0.0],
+      RIGHT_BLOCKED: [0.2, 0.4, -0.3, 0.0],
+    },
   };
+
   next.n[action] += 1;
   next.q[action] += ALPHA * (reward - next.q[action]);
+
+  if (contextKey && next.contextQ) {
+    if (!next.contextQ[contextKey]) {
+      next.contextQ[contextKey] = [0, 0, 0, 0];
+    }
+    const cQ = [...next.contextQ[contextKey]];
+    cQ[action] += ALPHA * 1.5 * (reward - cQ[action]);
+    next.contextQ[contextKey] = cQ;
+  }
+
   next.updates += 1;
   next.decisions += 1;
   return next;
+}
+
+/**
+ * Pure neural action selection: selects action arm directly with highest spike count
+ * without any external bandit or Q-table.
+ */
+export function chooseNeuralAction(arms: DoomArms): number {
+  let best = 0;
+  let maxCount = -1;
+  for (let a = 0; a < arms.counts.length; a++) {
+    if (arms.counts[a] > maxCount) {
+      maxCount = arms.counts[a];
+      best = a;
+    }
+  }
+  return best;
+}
+
+export interface DoomVariantResult {
+  variant: "A" | "B" | "C" | "D" | "E";
+  name: string;
+  totalReward: number;
+  stepsCompleted: number;
+  damageEvents: number;
+  pickupEvents: number;
+  actionCounts: number[];
+  finalBanditQ?: number[];
+  modifiedSynapses: number;
+  meanWeightDelta: number;
+}
+
+/**
+ * Controlled 5-Variant DOOM Evaluation
+ *
+ * Compares:
+ * A. FlyWire frozen + bandit
+ * B. FlyWire plastic + no bandit
+ * C. FlyWire plastic + bandit
+ * D. Random reservoir + bandit
+ * E. Random reservoir + no learning
+ */
+export function runDoomControlledBenchmark(
+  bundle: BrainBundle,
+  stepsCount = 40
+): Record<"A" | "B" | "C" | "D" | "E", DoomVariantResult> {
+  // Deterministic synthetic test environment: frames with simulated hazards and items
+  const frames: Float64Array[] = [];
+  let frameRng = 421337;
+  for (let s = 0; s < stepsCount; s++) {
+    const b = new Float64Array(NUM_SECTORS);
+    for (let sec = 0; sec < NUM_SECTORS; sec++) {
+      frameRng = (Math.imul(frameRng, 1664525) + 1013904223) >>> 0;
+      b[sec] = (frameRng % 1000) / 1000;
+    }
+    frames.push(b);
+  }
+
+  // Create Random Reservoir bundle (Erdos-Renyi rewiring)
+  const randBundle: BrainBundle = {
+    ...bundle,
+    edgesSrc: new Int32Array(bundle.edgeCount),
+    edgesTgt: new Int32Array(bundle.edgeCount),
+  };
+  let rSeed = 7777;
+  for (let i = 0; i < bundle.edgeCount; i++) {
+    rSeed = (Math.imul(rSeed, 1664525) + 1013904223) >>> 0;
+    randBundle.edgesSrc[i] = rSeed % bundle.neuronCount;
+    rSeed = (Math.imul(rSeed, 1664525) + 1013904223) >>> 0;
+    randBundle.edgesTgt[i] = rSeed % bundle.neuronCount;
+  }
+
+  const runVariant = (
+    variant: "A" | "B" | "C" | "D" | "E",
+    name: string,
+    useBundle: BrainBundle,
+    plasticity: boolean,
+    bandit: boolean
+  ): DoomVariantResult => {
+    let rstdp = freshRStdpState();
+    let pol = freshPolicy();
+    let totalReward = 0;
+    let damageEvents = 0;
+    let pickupEvents = 0;
+    const actionCounts = [0, 0, 0, 0];
+    let totalSynDelta = 0;
+    let totalSynCount = 0;
+
+    for (let step = 0; step < stepsCount; step++) {
+      const bright = frames[step];
+      const gains = plasticity ? modifiersToGains(rstdp.modifiers, useBundle.edgeCount) : null;
+      const arms = doomArms(bright, useBundle, 1000 + step, gains);
+
+      let action = 0;
+      if (variant === "E") {
+        // Random action, no learning
+        action = step % ACTIONS.length;
+      } else if (!bandit) {
+        // Pure neural readout
+        action = chooseNeuralAction(arms);
+      } else {
+        // Bandit policy
+        action = chooseAction(arms, pol);
+      }
+      actionCounts[action]++;
+
+      // Environment response:
+      // Sector 0 (center) bright -> hazard (requires turn left or right)
+      // Sector 1/2 bright -> item (requires forward)
+      let reward = 0;
+      if (bright[0] > 0.6) {
+        // Hazard in front: forward leads to damage (-1), turning avoids (0)
+        if (action === 2) {
+          reward = -1.0;
+          damageEvents++;
+        } else if (action === 0 || action === 1) {
+          reward = 0.5;
+        }
+      } else if (bright[1] > 0.5 || bright[2] > 0.5) {
+        // Item in view: forward collects item (+1), shooting or turning misses (0)
+        if (action === 2) {
+          reward = 1.0;
+          pickupEvents++;
+        }
+      } else {
+        // Free field: forward slightly rewarded for progress
+        reward = action === 2 ? 0.2 : -0.1;
+      }
+
+      totalReward += reward;
+
+      // Update plasticity if enabled
+      if (plasticity) {
+        const traces = computeEligibilityTraces(useBundle, arms.sim, DOOM_SIM_MS);
+        const { nextState, modifiedCount, meanDelta } = applyRewardModulation(rstdp, traces, reward);
+        rstdp = nextState;
+        totalSynDelta += meanDelta * modifiedCount;
+        totalSynCount += modifiedCount;
+      }
+
+      // Update bandit if enabled
+      if (bandit) {
+        pol = learn(pol, action, reward);
+      }
+    }
+
+    return {
+      variant,
+      name,
+      totalReward: Math.round(totalReward * 10) / 10,
+      stepsCompleted: stepsCount,
+      damageEvents,
+      pickupEvents,
+      actionCounts,
+      finalBanditQ: bandit ? pol.q.map((q) => Math.round(q * 100) / 100) : undefined,
+      modifiedSynapses: rstdp.modifiers.size,
+      meanWeightDelta: totalSynCount > 0 ? totalSynDelta / totalSynCount : 0,
+    };
+  };
+
+  return {
+    A: runVariant("A", "FlyWire Frozen + Bandit", bundle, false, true),
+    B: runVariant("B", "FlyWire Plastic (R-STDP) + No Bandit", bundle, true, false),
+    C: runVariant("C", "FlyWire Plastic (R-STDP) + Bandit", bundle, true, true),
+    D: runVariant("D", "Random Reservoir + Bandit", randBundle, false, true),
+    E: runVariant("E", "Random Reservoir + No Learning", randBundle, false, false),
+  };
 }

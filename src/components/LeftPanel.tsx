@@ -1,18 +1,16 @@
 import { useState, type RefObject } from "react";
-import { ArrowIcon, Flourish } from "./Marks";
+import { Flourish } from "./Marks";
 import BenchScene from "./BenchScene";
 import InlineBrainView from "../agi/brain3d/InlineBrainView";
 import NeuronView from "./NeuronView";
 import BrainMap from "./BrainMap";
 import type { SimResult } from "../brain/sim";
 import type { PeterTelemetry } from "../brain/talk";
-import { Sparkles, Gamepad2, Layers } from "lucide-react";
 
 type Props = {
   active: boolean;
   motion: boolean;
   sceneRef: RefObject<HTMLDivElement | null>;
-  onInspect: () => void;
   onOpenBrain?: () => void;
   onOpenAgi?: () => void;
   onOpenDoom?: () => void;
@@ -26,8 +24,7 @@ export default function LeftPanel({
   active,
   motion,
   sceneRef,
-  onInspect,
-  onOpenBrain,
+  onOpenBrain: _onOpenBrain,
   onOpenAgi,
   onOpenDoom,
   brainStatus = "loading",
@@ -95,16 +92,15 @@ export default function LeftPanel({
         <span className="caption-controls">
           {viewMode === "bench" ? (
             <button
-              className="action-pill-button primary-pill"
+              className="action-pill-button"
               onClick={handleShow3DBrain}
               title="Replace static photo with live 3D neurons"
             >
-              <Sparkles size={12} />
               <span>LIVE 3D NEURONS</span>
             </button>
           ) : (
             <button
-              className="action-pill-button primary-pill"
+              className="action-pill-button"
               onClick={() => setViewMode("bench")}
               title="Switch back to bench photograph"
             >
@@ -114,11 +110,21 @@ export default function LeftPanel({
 
           {onOpenDoom && (
             <button
-              className="action-pill-button doom-pill"
+              className="action-pill-button"
               onClick={onOpenDoom}
               title="Watch Peter play DOOM using real brain decisions"
             >
-              <Gamepad2 size={12} />
+              <span>DOOM</span>
+            </button>
+          )}
+
+          {onOpenDoom && (
+            <button
+              id="doom-workspace-trigger"
+              className="action-pill-button"
+              onClick={onOpenDoom}
+              title="Watch Peter play DOOM using real brain decisions"
+            >
               <span>DOOM</span>
             </button>
           )}
@@ -126,11 +132,10 @@ export default function LeftPanel({
           {onOpenAgi && (
             <button
               id="agi-workspace-trigger"
-              className="action-pill-button agi-pill"
+              className="action-pill-button"
               onClick={onOpenAgi}
               title="Open FlyWire Cognitive AGI Architecture Workspace"
             >
-              <Sparkles size={12} />
               <span>AGI</span>
             </button>
           )}

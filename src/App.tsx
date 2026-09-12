@@ -1,43 +1,32 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ChatPanel from "./components/ChatPanel";
 import DataPathway from "./components/DataPathway";
 import LeftPanel from "./components/LeftPanel";
 import Dialog from "./components/Dialog";
-import BrainMap from "./components/BrainMap";
-import NeuronView from "./components/NeuronView";
 import ConnectomeViewer from "./components/ConnectomeViewer";
 import BootScreen from "./components/BootScreen";
 import Disclosure from "./components/Disclosure";
 import { ArrowIcon, EtchedFly, Flourish, PauseIcon, SoundIcon } from "./components/Marks";
 import { useMotionPreference } from "./utils/useMotionPreference";
 import { loadPeterRuntime } from "./brain/load";
-import { simulateBrain, readoutState, type SimResult } from "./brain/sim";
-import { stimulusForText } from "./brain/spikegen";
+import type { SimResult } from "./brain/sim";
 import type { PeterTelemetry } from "./brain/talk";
 import { hydrateSharedBrain } from "./data/flyBrain";
 import { initBuzzUnlock, setSoundEnabled } from "./utils/buzz";
 import AgiWorkspace from "./agi/AgiWorkspace";
-import DoomModal from "./agi/DoomModal";
+import DoomWorkspace from "./agi/DoomWorkspace";
 import { streamSimResultTo3D } from "./agi/simBridge";
-import { Sparkles, Gamepad2 } from "lucide-react";
-
-const LabScene3D = lazy(() => import("./three/LabScene3D"));
 
 export default function App() {
-  const [appMode, setAppMode] = useState<"lab" | "agi">("lab");
-  const [doomOpen, setDoomOpen] = useState(false);
+  const [appMode, setAppMode] = useState<"lab" | "agi" | "doom">("lab");
   const [active, setActive] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
-  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [paused, setPaused] = useState(false);
-  const [viewKey, setViewKey] = useState(0);
-  const [testing, setTesting] = useState(false);
   const prefersReducedMotion = useMotionPreference();
   const motion = !paused && !prefersReducedMotion;
   const shellRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<HTMLDivElement>(null);
   const portRef = useRef<HTMLSpanElement>(null);
-  const testTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [brainStatus, setBrainStatus] = useState<"loading" | "live" | "fallback">("loading");
   const [brainCounts, setBrainCounts] = useState<{ neurons: number; edges: number; dataset: string } | null>(null);
   const [booted, setBooted] = useState(false);
@@ -75,10 +64,6 @@ export default function App() {
     }
   };
 
-  useEffect(() => () => {
-    if (testTimer.current) clearTimeout(testTimer.current);
-  }, []);
-
   useEffect(() => {
     let cancelled = false;
     loadPeterRuntime()
@@ -100,20 +85,6 @@ export default function App() {
     try { sessionStorage.setItem("flybrain-disclosure-v1", "1"); } catch { /* optional */ }
   };
 
-  /** "Test the signal": run a REAL spiking simulation through the connectome. */
-  const testSignal = async () => {
-    if (testTimer.current) clearTimeout(testTimer.current);
-    setTesting(true);
-    testTimer.current = setTimeout(() => setTesting(false), 4800);
-    try {
-      const { bundle } = await loadPeterRuntime();
-      const plan = stimulusForText("test signal hello peter", bundle);
-      const sim = simulateBrain(bundle, plan.rows, plan.rates, 783, 300);
-      readoutState(sim, bundle.readoutRows); // touch the state so it is computed
-    } catch {
-      /* bundle unavailable - the theatrical test timer still runs */
-    }
-  };
 
   if (!booted) {
     return (
@@ -130,13 +101,19 @@ export default function App() {
 
   if (appMode === "agi") {
     return (
-      <>
-        <AgiWorkspace
-          onReturnToLab={() => setAppMode("lab")}
-          onOpenDoom={() => setDoomOpen(true)}
-        />
-        <DoomModal open={doomOpen} onClose={() => setDoomOpen(false)} />
-      </>
+      <AgiWorkspace
+        onReturnToLab={() => setAppMode("lab")}
+        onOpenDoom={() => setAppMode("doom")}
+      />
+    );
+  }
+
+  if (appMode === "doom") {
+    return (
+      <DoomWorkspace
+        onReturnToLab={() => setAppMode("lab")}
+        onOpenAgi={() => setAppMode("agi")}
+      />
     );
   }
 
@@ -150,20 +127,18 @@ export default function App() {
         <div className="masthead-center" aria-hidden="true">A most unusual conversation.</div>
         <div className="masthead-controls">
           <button
-            className="masthead-mode-btn doom-nav-btn"
-            onClick={() => setDoomOpen(true)}
+            className="text-control notes-control"
+            onClick={() => setAppMode("doom")}
             title="Watch Peter play DOOM using real brain decisions"
           >
-            <Gamepad2 size={13} />
-            <span>PLAY DOOM</span>
+            DOOM <ArrowIcon diagonal />
           </button>
           <button
-            className="masthead-mode-btn agi-nav-btn"
+            className="text-control notes-control"
             onClick={() => setAppMode("agi")}
             title="Enter full AGI Workspace mode"
           >
-            <Sparkles size={13} />
-            <span>AGI MODE</span>
+            AGI Workspace <ArrowIcon diagonal />
           </button>
           <button className="text-control notes-control" onClick={() => setNotesOpen(true)}>
             Field notes <ArrowIcon diagonal />
@@ -173,13 +148,12 @@ export default function App() {
 
       <main className="workspace" id="flybrain">
         <LeftPanel
-          active={active || testing}
+          active={active}
           motion={motion}
           sceneRef={sceneRef}
-          onInspect={() => setInspectorOpen(true)}
           onOpenBrain={() => setViewerOpen(true)}
           onOpenAgi={() => setAppMode("agi")}
-          onOpenDoom={() => setDoomOpen(true)}
+          onOpenDoom={() => setAppMode("doom")}
           brainStatus={brainStatus}
           brainCounts={brainCounts}
           sim={sim}
@@ -220,7 +194,7 @@ export default function App() {
         </button>
       </footer>
 
-      <DataPathway shellRef={shellRef} sceneRef={sceneRef} portRef={portRef} active={active || testing} motion={motion} />
+      <DataPathway shellRef={shellRef} sceneRef={sceneRef} portRef={portRef} active={active} motion={motion} />
 
       <Dialog open={notesOpen} onClose={() => setNotesOpen(false)} title="Notes from the laboratory" className="field-notes-dialog">
         <span className="eyebrow">THE FLYBRAIN EXPERIMENT / NO. 001</span>
@@ -242,28 +216,6 @@ export default function App() {
         lastReply={lastExchange?.reply ?? null}
       />
 
-      <DoomModal open={doomOpen} onClose={() => setDoomOpen(false)} />
-
-      <Dialog open={inspectorOpen} onClose={() => setInspectorOpen(false)} title="Inspect the apparatus in 3D" className="inspection-dialog">
-        <div className="inspection-heading">
-          <div><span className="eyebrow">BENCH 04 / INTERACTIVE STUDY</span><h2>The apparatus.</h2></div>
-          <span className="inspection-hint">Drag to orbit. Scroll to examine.</span>
-        </div>
-        <div className="inspection-canvas">
-          {inspectorOpen && (
-            <Suspense fallback={<div className="scene-loading"><EtchedFly /><span>Uncovering the apparatus...</span></div>}>
-              <LabScene3D key={viewKey} active={active || testing} motion={motion} />
-            </Suspense>
-          )}
-        </div>
-        <NeuronView telemetry={telemetry} sim={sim} />
-        <BrainMap telemetry={telemetry} active={active || testing} />
-        <div className="inspection-controls">
-          <span className="eyebrow"><i className={`status-dot ${testing ? "working" : ""}`} /> {testing ? "SIGNAL PASSING THROUGH" : "SPECIMEN AT REST"}</span>
-          <button className="text-control" onClick={() => setViewKey(viewKey + 1)}>Reset view</button>
-          <button className="physical-button" onClick={() => void testSignal()} disabled={testing}>Test the signal <ArrowIcon /></button>
-        </div>
-      </Dialog>
     </div>
   );
 }

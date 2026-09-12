@@ -1,7 +1,6 @@
 import { brain } from "./brain3d";
 import type { SimResult } from "../brain/sim";
 import type { BrainBundle } from "../brain/bundle";
-import type { PeterTelemetry } from "../brain/talk";
 
 /**
  * Maps Peter's 2,200 LIF neurons and biological connectome to 3D visual proxies
@@ -106,8 +105,8 @@ export function streamSimResultTo3D(sim: SimResult, bundle?: BrainBundle) {
  */
 export function streamDoomStepTo3D(
   sectors: number[],
-  actionIndex: number,
-  actionName: string,
+  _actionIndex: number,
+  _actionName: string,
   reward: number
 ) {
   const currentTime = brain.getStatus().simulationTime;

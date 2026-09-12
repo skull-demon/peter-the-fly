@@ -1,62 +1,79 @@
+/**
+ * AGI Workspace
+ *
+ * This component uses the FlyWire neural substrate directly via agiEngine.ts.
+ * It does NOT call askPeter(), talk.ts, or any chatbot pipeline.
+ * Two different inputs → two different requestIds → two independent neural runs.
+ * UNCERTAIN is shown honestly when confidence is below threshold.
+ */
+
 import { useState, useEffect, useRef } from "react";
 import { BrainScene } from "./brain3d/scene/BrainScene";
-import { brain } from "./brain3d/runtime";
 import { useBrainRuntime } from "./brain3d/hooks";
-import { CAMERA_PRESETS } from "./brain3d/camera";
 import type { CameraPreset, VisualMode, SearchResult } from "./brain3d/types";
 import { streamSimResultTo3D } from "./simBridge";
-import { askPeter } from "../data/flyBrain";
-import type { PeterTelemetry } from "../brain/talk";
-import { loadPeterRuntime, type PeterRuntime } from "../brain/load";
-import type { SimResult } from "../brain/sim";
+import {
+  processAgiTask,
+  resetAgiLearning,
+  CONFIDENCE_HIGH,
+  CONFIDENCE_LOW,
+  type AgiTaskResult,
+  type AgiTraceEntry,
+} from "../brain/agiEngine";
+import { loadPeterRuntime } from "../brain/load";
 import { FlyWireAgiCore } from "../brain/agiCore";
-import { evaluateAgiCore, type EvaluationResults, computeDatasetHash } from "../../evaluation/v1/evaluator";
+import { evaluateAgiCore } from "../../evaluation/v1/evaluator";
+import { TRAINING_CURRICULUM, BLIND_HOLDOUT } from "../../evaluation/v1/curriculum";
 import {
   Send,
   RotateCcw,
-  Sparkles,
   Zap,
   Activity,
-  Layers,
   Search,
   Database,
-  Sliders,
-  Radio,
-  Eye,
-  Maximize2,
   Minimize2,
   Gamepad2,
   Flame,
-  HelpCircle,
   X,
-  Crosshair,
-  EyeOff,
   ShieldCheck,
-  CheckCircle2
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  Brain,
+  Cpu,
 } from "lucide-react";
+
+// ---- Types ----------------------------------------------------------------
 
 type Props = {
   onReturnToLab: () => void;
   onOpenDoom: () => void;
 };
 
+interface AgiMessage {
+  id: string;
+  sender: "researcher" | "system";
+  input?: string;
+  result?: AgiTaskResult;
+  errorText?: string;
+  timestamp: number;
+}
+
 const VISUAL_MODES: Array<{ id: VisualMode; label: string }> = [
-  { id: "NEURAL_ACTIVITY", label: "Neural Activity" },
+  { id: "NEURAL_ACTIVITY", label: "Activity" },
   { id: "STRUCTURAL", label: "Structural" },
   { id: "CONNECTIVITY", label: "Connectivity" },
-  { id: "REGION_ACTIVITY", label: "Region Activity" },
-  { id: "SPIKE_PLAYBACK", label: "Spike Playback" },
+  { id: "REGION_ACTIVITY", label: "Regions" },
+  { id: "SPIKE_PLAYBACK", label: "Spikes" },
   { id: "PLASTICITY", label: "Plasticity" },
-  { id: "PATH_TRACING", label: "Path Tracing" },
 ];
 
 const PRESETS: Array<{ id: CameraPreset; label: string }> = [
   { id: "WHOLE_BRAIN", label: "Whole" },
-  { id: "CENTRAL_COMPLEX", label: "Central Complex" },
-  { id: "RIGHT_OPTIC_LOBE", label: "Optic Lobe" },
-  { id: "MUSHROOM_BODY", label: "Mushroom Body" },
+  { id: "CENTRAL_COMPLEX", label: "Central" },
+  { id: "RIGHT_OPTIC_LOBE", label: "Optic" },
+  { id: "MUSHROOM_BODY", label: "Mushroom" },
   { id: "TOP", label: "Top" },
-  { id: "FRONT", label: "Front" },
   { id: "ISOMETRIC", label: "Iso" },
 ];
 
@@ -67,114 +84,270 @@ const REGIONS = [
   { id: "LOP_R", label: "LOBULA PLATE" },
   { id: "CA_R", label: "MUSHROOM BODY" },
   { id: "FB", label: "FAN-SHAPED BODY" },
-  { id: "PB", label: "PROTOCEREBRAL BRIDGE" },
+  { id: "PB", label: "PROTO. BRIDGE" },
   { id: "EB", label: "ELLIPSOID BODY" },
-  { id: "NO", label: "NODULI" },
-  { id: "AL_R", label: "ANTENNAL LOBE" },
-  { id: "LH_R", label: "LATERAL HORN" },
 ];
+
+// ---- Confidence badge ------------------------------------------------------
+
+function ConfidenceBadge({ label, value }: { label: "HIGH" | "LOW" | "UNCERTAIN"; value: number }) {
+  const colors: Record<string, string> = {
+    HIGH: "#6be06b",
+    LOW: "#e5b364",
+    UNCERTAIN: "#e05a5a",
+  };
+  return (
+    <span
+      className="confidence-badge"
+      style={{ color: colors[label], borderColor: colors[label] }}
+    >
+      {label} {(value * 100).toFixed(0)}%
+    </span>
+  );
+}
+
+// ---- Readout Vector Heatmap ------------------------------------------------
+
+function ReadoutHeatmap({ vector }: { vector: Float64Array }) {
+  if (!vector || vector.length === 0) return null;
+  const max = Math.max(...vector) || 1;
+  const sample = Array.from(vector).slice(0, 60); // show first 60 neurons
+  return (
+    <div className="readout-heatmap">
+      {sample.map((v, i) => (
+        <div
+          key={i}
+          className="heatmap-cell"
+          style={{
+            opacity: 0.15 + (v / max) * 0.85,
+            background: v > max * 0.5 ? "#d4ad71" : "#7ab4c4",
+          }}
+          title={`Neuron ${i}: ${v.toFixed(1)} spikes`}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ---- Trace log display -----------------------------------------------------
+
+function TraceLog({ trace, collapsed }: { trace: AgiTraceEntry[]; collapsed: boolean }) {
+  if (collapsed) return null;
+  return (
+    <div className="trace-log">
+      {trace.map((entry, i) => (
+        <div key={i} className="trace-entry">
+          <span className="trace-stage">{entry.stage}</span>
+          <span className="trace-detail">{entry.detail}</span>
+          {entry.value !== undefined && (
+            <span className="trace-value">{String(entry.value)}</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---- AGI Result Card -------------------------------------------------------
+
+function AgiResultCard({ msg }: { msg: AgiMessage }) {
+  const [traceOpen, setTraceOpen] = useState(false);
+  const r = msg.result;
+
+  if (!r) return null;
+
+  return (
+    <div className={`agi-result-card ${r.confidenceLabel.toLowerCase()}`}>
+      {/* Answer line */}
+      <div className="result-answer-row">
+        <div className="result-answer">
+          {r.answer === "UNCERTAIN" ? (
+            <span className="uncertain-answer">
+              <AlertTriangle size={14} />
+              UNCERTAIN — neural state insufficient
+            </span>
+          ) : (
+            <span className="resolved-answer">{r.answer}</span>
+          )}
+        </div>
+        <ConfidenceBadge label={r.confidenceLabel} value={r.confidence} />
+      </div>
+
+      {/* Neural metrics row */}
+      <div className="result-metrics-row">
+        <span className="metric-pill">
+          <Zap size={10} /> {r.spikes.toLocaleString()} spikes
+        </span>
+        <span className="metric-pill">
+          <Activity size={10} /> {r.activeNeurons} active neurons
+        </span>
+        <span className="metric-pill">
+          <Cpu size={10} /> {r.simDurationMs}ms sim
+        </span>
+        <span className="metric-pill subtle">
+          {r.modifiedSynapses.toLocaleString()} plastic synapses
+        </span>
+      </div>
+
+      {/* Readout heatmap */}
+      <div className="readout-section">
+        <span className="readout-label">660-NEURON READOUT POOL (first 60 shown):</span>
+        <ReadoutHeatmap vector={r.readoutVector} />
+      </div>
+
+      {/* State key */}
+      <div className="state-key-row">
+        <span className="state-key-label">STATE KEY:</span>
+        <code className="state-key-value">{r.stateKey}</code>
+      </div>
+
+      {/* Pipeline trace toggle */}
+      <button
+        className="trace-toggle-btn"
+        onClick={() => setTraceOpen(!traceOpen)}
+      >
+        {traceOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        {traceOpen ? "HIDE" : "SHOW"} EXECUTION TRACE ({r.trace.length} steps)
+      </button>
+      <TraceLog trace={r.trace} collapsed={!traceOpen} />
+
+      {/* Request ID */}
+      <div className="request-id-row">
+        <span className="req-id-label">REQUEST:</span>
+        <code className="req-id-value">{r.requestId}</code>
+      </div>
+    </div>
+  );
+}
+
+// ---- Main Workspace --------------------------------------------------------
 
 export default function AgiWorkspace({ onReturnToLab, onOpenDoom }: Props) {
   const runtime = useBrainRuntime();
   const status = runtime.getStatus();
-  const [activeTab, setActiveTab] = useState<"chat" | "memory" | "experiment" | "inspector" | "validation">("chat");
-  const [evalResults, setEvalResults] = useState<EvaluationResults | null>(null);
-  const [evaluating, setEvaluating] = useState(false);
 
-  // Chat & Cognitive State
-  const [messages, setMessages] = useState<Array<{ sender: "user" | "peter"; text: string; telemetry?: PeterTelemetry }>>([
+  const [activeTab, setActiveTab] = useState<"task" | "neural" | "memory" | "validation">("task");
+  const [messages, setMessages] = useState<AgiMessage[]>([
     {
-      sender: "peter",
-      text: "AGI workspace active. The FlyWire connectome is initialized. What shall we explore together?",
+      id: "init",
+      sender: "system",
+      errorText: "AGI workspace ready. FlyWire connectome initializing. Send any input — the neural substrate will process it.",
+      timestamp: Date.now(),
     },
   ]);
   const [input, setInput] = useState("");
-  const [isThinking, setIsThinking] = useState(false);
-  const [currentTelemetry, setCurrentTelemetry] = useState<PeterTelemetry | null>(null);
-  const [lastSim, setLastSim] = useState<SimResult | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [lastResult, setLastResult] = useState<AgiTaskResult | null>(null);
+  const [learningEnabled, setLearningEnabled] = useState(false);
+  const [feedbackInput, setFeedbackInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const [evalRunning, setEvalRunning] = useState(false);
+  const [evalOutput, setEvalOutput] = useState<string | null>(null);
+  const taskScrollRef = useRef<HTMLDivElement>(null);
 
-  const handleRunEvaluation = async () => {
-    setEvaluating(true);
-    try {
-      const rt = await loadPeterRuntime();
-      const core = new FlyWireAgiCore(rt.bundle);
-      const results = evaluateAgiCore(core, true);
-      setEvalResults(results);
-    } catch (err) {
-      console.error("Evaluation failed", err);
-    } finally {
-      setEvaluating(false);
-    }
-  };
-
-  // Search in 3D Brain
+  // Search neurons
   useEffect(() => {
     if (searchQuery.trim()) {
-      setSearchResults(runtime.search(searchQuery.trim(), 10));
+      setSearchResults(runtime.search(searchQuery.trim(), 8));
     } else {
       setSearchResults([]);
     }
   }, [searchQuery, runtime]);
 
-  // Auto scroll chat
+  // Auto-scroll
   useEffect(() => {
-    if (chatScrollRef.current) {
-      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    if (taskScrollRef.current) {
+      taskScrollRef.current.scrollTop = taskScrollRef.current.scrollHeight;
     }
-  }, [messages, isThinking]);
+  }, [messages, isProcessing]);
 
-  const handleSendMessage = async (e?: React.FormEvent) => {
+  // ---- AGI Task Handler — THE critical path --------------------------------
+  // Does NOT call askPeter(). Does NOT use talk.ts.
+  // Routes through agiEngine.processAgiTask() → FlyWireAgiCore.predict()
+  const handleSubmitTask = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const prompt = input.trim();
-    if (!prompt || isThinking) return;
+    if (!prompt || isProcessing) return;
 
     setInput("");
-    setMessages((prev) => [...prev, { sender: "user", text: prompt }]);
-    setIsThinking(true);
+    const msgId = `msg-${Date.now()}`;
+
+    // Add researcher input immediately
+    setMessages((prev) => [
+      ...prev,
+      { id: msgId + "-in", sender: "researcher", input: prompt, timestamp: Date.now() },
+    ]);
+    setIsProcessing(true);
 
     try {
-      const exchange = await askPeter(prompt);
-      if (exchange.sim) {
-        setLastSim(exchange.sim);
-        streamSimResultTo3D(exchange.sim);
-      }
+      // This is the ACTUAL AGI pipeline — not the chatbot
+      const result = await processAgiTask(prompt, {
+        enableLearning: learningEnabled,
+        feedbackToken: learningEnabled && feedbackInput.trim() ? feedbackInput.trim() : undefined,
+      });
 
-      setCurrentTelemetry(exchange.telemetry ?? null);
+      // Stream real spikes to 3D visualization
+      streamSimResultTo3D(result.sim);
+
+      setLastResult(result);
       setMessages((prev) => [
         ...prev,
-        {
-          sender: "peter",
-          text: exchange.text,
-          telemetry: exchange.telemetry,
-        },
+        { id: msgId + "-out", sender: "system", result, timestamp: Date.now() },
       ]);
     } catch (err) {
       setMessages((prev) => [
         ...prev,
         {
-          sender: "peter",
-          text: "My neural pathways encountered an interruption. Please try again.",
+          id: msgId + "-err",
+          sender: "system",
+          errorText: `Neural processing failed: ${err instanceof Error ? err.message : "unknown error"}`,
+          timestamp: Date.now(),
         },
       ]);
     } finally {
-      setIsThinking(false);
+      setIsProcessing(false);
     }
   };
 
-  const handleStimulateRegion = (regId: string) => {
-    runtime.focusRegion(regId);
-    runtime.setRegionActivity(regId, 1.0);
-    // Fire sample neurons in that region
-    const neurons = runtime.getModel().neurons.filter((n) => n.region.includes(regId));
-    neurons.slice(0, 15).forEach((n, idx) => {
-      runtime.fireNeuron(n.id, runtime.getStatus().simulationTime + idx * 15, 1.0);
-    });
+  const handleReset = async () => {
+    await resetAgiLearning();
+    setLastResult(null);
+    setMessages([
+      {
+        id: "reset",
+        sender: "system",
+        errorText: "Neural state reset. Learned synaptic modifiers cleared.",
+        timestamp: Date.now(),
+      },
+    ]);
   };
 
-  const selectedNeuron = status.selectedNeuronId ? runtime.getNeuron(status.selectedNeuronId) : null;
+  const handleRunEval = async () => {
+    setEvalRunning(true);
+    setEvalOutput("Running evaluation on real FlyWire substrate...");
+    try {
+      const rt = await loadPeterRuntime();
+      const core = new FlyWireAgiCore(rt.bundle);
+      const trainResult = evaluateAgiCore(core, TRAINING_CURRICULUM);
+      const holdoutResult = evaluateAgiCore(core, BLIND_HOLDOUT);
+      setEvalOutput(
+        `TRAIN accuracy (${TRAINING_CURRICULUM.length} examples): ${(trainResult.accuracy * 100).toFixed(1)}%\n` +
+        `HOLDOUT accuracy (${BLIND_HOLDOUT.length} examples, unseen): ${(holdoutResult.accuracy * 100).toFixed(1)}%\n\n` +
+        `Untrained baseline — readout weights are random.\n` +
+        `These results reflect pure FlyWire reservoir state projection.\n\n` +
+        `Sample predictions:\n` +
+        trainResult.details.slice(0, 5).map(
+          d => `  "${d.input}" → predicted: "${d.predicted}" (expected: "${d.expected}") ${d.isCorrect ? "✓" : "✗"}`
+        ).join("\n")
+      );
+    } catch (err) {
+      setEvalOutput(`Evaluation error: ${err instanceof Error ? err.message : "unknown"}`);
+    } finally {
+      setEvalRunning(false);
+    }
+  };
+
 
   return (
     <div className="agi-workspace-root">
@@ -184,7 +357,7 @@ export default function AgiWorkspace({ onReturnToLab, onOpenDoom }: Props) {
           <div className="agi-logo-dot" />
           <div>
             <h1>PETER THE FLY <span className="agi-tag">AGI WORKSPACE</span></h1>
-            <p className="agi-subtitle">Direct Connectome Interface · FlyWire FAFB v783</p>
+            <p className="agi-subtitle">Direct Connectome Interface · FlyWire FAFB v783 · No LLM</p>
           </div>
         </div>
 
@@ -197,10 +370,16 @@ export default function AgiWorkspace({ onReturnToLab, onOpenDoom }: Props) {
             <Zap size={12} />
             <span>71,365 SYNAPSES</span>
           </div>
-          <div className="stat-pill highlight">
+          <div className={`stat-pill ${learningEnabled ? "highlight" : ""}`}>
             <Flame size={12} />
-            <span>{currentTelemetry ? `${currentTelemetry.spike_count.toLocaleString()} SPIKES` : "CONNECTOME IDLE"}</span>
+            <span>{learningEnabled ? "R-STDP LEARNING ON" : "LEARNING OFF"}</span>
           </div>
+          {lastResult && (
+            <div className="stat-pill">
+              <Brain size={12} />
+              <span>{lastResult.spikes.toLocaleString()} SPIKES</span>
+            </div>
+          )}
         </div>
 
         <div className="agi-nav-actions">
@@ -210,25 +389,25 @@ export default function AgiWorkspace({ onReturnToLab, onOpenDoom }: Props) {
           </button>
           <button className="agi-btn lab-btn" onClick={onReturnToLab}>
             <Minimize2 size={14} />
-            <span>RETURN TO LAB</span>
+            <span>LAB</span>
           </button>
         </div>
       </header>
 
-      {/* Main Split Layout */}
+      {/* Main grid */}
       <div className="agi-main-grid">
-        {/* Left: 3D Connectome Workspace */}
+        {/* Left: 3D Brain */}
         <div className="agi-brain-pane">
           <div className="agi-canvas-holder">
             <BrainScene />
 
-            {/* Top Overlay: Search & Camera Presets */}
+            {/* Top overlay */}
             <div className="brain-overlay-top">
               <div className="search-box">
                 <Search size={14} />
                 <input
                   type="text"
-                  placeholder="Search neuron, region (CT1, ME, AL)..."
+                  placeholder="Search neuron, region..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
@@ -244,7 +423,6 @@ export default function AgiWorkspace({ onReturnToLab, onOpenDoom }: Props) {
                         onClick={() => {
                           if (res.kind === "NEURON") {
                             runtime.focusNeuron(res.id);
-                            setActiveTab("inspector");
                           } else {
                             runtime.focusRegion(res.id);
                           }
@@ -272,7 +450,7 @@ export default function AgiWorkspace({ onReturnToLab, onOpenDoom }: Props) {
               </div>
             </div>
 
-            {/* Bottom Overlay: Visual Modes & Region Chips */}
+            {/* Bottom overlay */}
             <div className="brain-overlay-bottom">
               <div className="visual-modes-strip">
                 <span className="strip-title">MODE:</span>
@@ -314,110 +492,122 @@ export default function AgiWorkspace({ onReturnToLab, onOpenDoom }: Props) {
 
         {/* Right: Cognitive Console */}
         <div className="agi-console-pane">
-          {/* Navigation Tabs */}
+          {/* Tabs */}
           <div className="console-tabs">
             <button
-              className={`tab-btn ${activeTab === "chat" ? "active" : ""}`}
-              onClick={() => setActiveTab("chat")}
+              className={`tab-btn ${activeTab === "task" ? "active" : ""}`}
+              onClick={() => setActiveTab("task")}
             >
-              <Radio size={14} />
-              <span>COGNITIVE CHAT</span>
+              <Cpu size={13} />
+              <span>NEURAL TASK</span>
+            </button>
+            <button
+              className={`tab-btn ${activeTab === "neural" ? "active" : ""}`}
+              onClick={() => setActiveTab("neural")}
+            >
+              <Activity size={13} />
+              <span>PIPELINE</span>
             </button>
             <button
               className={`tab-btn ${activeTab === "memory" ? "active" : ""}`}
               onClick={() => setActiveTab("memory")}
             >
-              <Database size={14} />
-              <span>MEMORY</span>
-            </button>
-            <button
-              className={`tab-btn ${activeTab === "experiment" ? "active" : ""}`}
-              onClick={() => setActiveTab("experiment")}
-            >
-              <Sliders size={14} />
-              <span>EXPERIMENTS</span>
+              <Database size={13} />
+              <span>PLASTICITY</span>
             </button>
             <button
               className={`tab-btn ${activeTab === "validation" ? "active" : ""}`}
               onClick={() => setActiveTab("validation")}
             >
-              <ShieldCheck size={14} />
-              <span>AGI PROOF</span>
+              <ShieldCheck size={13} />
+              <span>PROOF</span>
             </button>
-            {selectedNeuron && (
-              <button
-                className={`tab-btn ${activeTab === "inspector" ? "active" : ""}`}
-                onClick={() => setActiveTab("inspector")}
-              >
-                <Crosshair size={14} />
-                <span>INSPECTOR</span>
-              </button>
-            )}
           </div>
 
-          {/* Tab 1: Chat & Live Telemetry */}
-          {activeTab === "chat" && (
-            <div className="console-tab-content chat-content">
-              {/* Telemetry Summary Card */}
-              {currentTelemetry && (
-                <div className="telemetry-bar">
-                  <div className="tele-metric">
-                    <label>SPIKES</label>
-                    <span>{currentTelemetry.spike_count.toLocaleString()}</span>
-                  </div>
-                  <div className="tele-metric">
-                    <label>ACTIVE NEURONS</label>
-                    <span>{currentTelemetry.active_neurons.toLocaleString()}</span>
-                  </div>
-                  <div className="tele-metric">
-                    <label>SIM DURATION</label>
-                    <span>{currentTelemetry.sim_duration_ms} ms</span>
-                  </div>
-                  <div className="tele-metric highlight">
-                    <label>WINNING WINNER</label>
-                    <span>"{currentTelemetry.winner_token}"</span>
-                  </div>
-                </div>
-              )}
+          {/* ---- TAB: NEURAL TASK ------------------------------------------ */}
+          {activeTab === "task" && (
+            <div className="console-tab-content task-content">
+              {/* Learning control */}
+              <div className="learning-control-bar">
+                <label className="learning-toggle">
+                  <input
+                    type="checkbox"
+                    checked={learningEnabled}
+                    onChange={(e) => setLearningEnabled(e.target.checked)}
+                  />
+                  <span>R-STDP LEARNING</span>
+                </label>
+                {learningEnabled && (
+                  <input
+                    type="text"
+                    className="feedback-input"
+                    placeholder="Correct answer (feedback token for R-STDP)"
+                    value={feedbackInput}
+                    onChange={(e) => setFeedbackInput(e.target.value)}
+                  />
+                )}
+                <button className="agi-btn-sm reset-btn" onClick={handleReset} title="Reset learned synaptic state">
+                  <RotateCcw size={11} />
+                  RESET
+                </button>
+              </div>
 
-              {/* Message Feed */}
-              <div className="chat-messages-container" ref={chatScrollRef}>
-                {messages.map((m, idx) => (
-                  <div key={idx} className={`agi-msg ${m.sender}`}>
-                    <div className="msg-header">
-                      <span className="msg-sender">{m.sender === "user" ? "RESEARCHER" : "PETER"}</span>
-                      {m.telemetry && (
-                        <span className="msg-tele-tag">
-                          {m.telemetry.spike_count.toLocaleString()} spikes · {m.telemetry.sim_duration_ms}ms
-                        </span>
-                      )}
+              {/* Message feed */}
+              <div className="task-messages-container" ref={taskScrollRef}>
+                {messages.map((msg) => {
+                  if (msg.sender === "researcher") {
+                    return (
+                      <div key={msg.id} className="agi-msg researcher">
+                        <div className="msg-header">
+                          <span className="msg-sender">RESEARCHER INPUT</span>
+                          <code className="msg-time">{new Date(msg.timestamp).toLocaleTimeString()}</code>
+                        </div>
+                        <div className="msg-body task-input">{msg.input}</div>
+                      </div>
+                    );
+                  }
+                  if (msg.result) {
+                    return (
+                      <div key={msg.id} className="agi-msg system">
+                        <div className="msg-header">
+                          <span className="msg-sender">NEURAL OUTPUT</span>
+                          <code className="msg-time">{new Date(msg.timestamp).toLocaleTimeString()}</code>
+                        </div>
+                        <AgiResultCard msg={msg} />
+                      </div>
+                    );
+                  }
+                  // system message / error
+                  return (
+                    <div key={msg.id} className="agi-msg system-note">
+                      <span className="system-note-text">{msg.errorText}</span>
                     </div>
-                    <div className="msg-body">{m.text}</div>
-                  </div>
-                ))}
-                {isThinking && (
-                  <div className="agi-msg peter thinking">
+                  );
+                })}
+
+                {isProcessing && (
+                  <div className="agi-msg system processing">
                     <div className="msg-header">
-                      <span className="msg-sender">PETER</span>
+                      <span className="msg-sender">NEURAL PROCESSING</span>
                     </div>
                     <div className="thinking-indicator">
                       <span className="pulse-dot" />
-                      <span>Simulating 2,200 LIF neurons through connectome...</span>
+                      <span>Simulating 2,200 LIF neurons through FlyWire connectome...</span>
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Input Form */}
-              <form className="chat-input-form" onSubmit={handleSendMessage}>
+              {/* Task input */}
+              <form className="chat-input-form" onSubmit={handleSubmitTask}>
                 <input
                   type="text"
-                  placeholder="Stimulate Peter's connectome with thoughts..."
+                  placeholder="Enter any task — the FlyWire substrate processes it..."
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  disabled={isThinking}
+                  disabled={isProcessing}
                 />
-                <button type="submit" disabled={isThinking || !input.trim()}>
+                <button type="submit" disabled={isProcessing || !input.trim()}>
                   <Send size={15} />
                   <span>TRANSMIT</span>
                 </button>
@@ -425,255 +615,209 @@ export default function AgiWorkspace({ onReturnToLab, onOpenDoom }: Props) {
             </div>
           )}
 
-          {/* Tab 2: Memory & Synaptic Plasticity */}
+          {/* ---- TAB: PIPELINE --------------------------------------------- */}
+          {activeTab === "neural" && (
+            <div className="console-tab-content pipeline-content">
+              <h3 className="section-title">AGI PIPELINE (NOT THE CHATBOT)</h3>
+
+              <div className="pipeline-diagram">
+                <div className="pipe-stage">
+                  <span className="pipe-label">INPUT</span>
+                  <div className="pipe-desc">Arbitrary text → <code>stimulusForText()</code></div>
+                </div>
+                <div className="pipe-arrow">↓</div>
+                <div className="pipe-stage">
+                  <span className="pipe-label">ENCODING</span>
+                  <div className="pipe-desc">Token hash → 220 input-pool neurons (FlyWire)</div>
+                </div>
+                <div className="pipe-arrow">↓</div>
+                <div className="pipe-stage active">
+                  <span className="pipe-label">LIF SIMULATION</span>
+                  <div className="pipe-desc"><code>simulateBrain()</code> — 2,200 neurons, 71,365 synapses, 0.5ms dt</div>
+                </div>
+                <div className="pipe-arrow">↓</div>
+                <div className="pipe-stage">
+                  <span className="pipe-label">READOUT</span>
+                  <div className="pipe-desc">660 motor/readout neurons → spike count vector</div>
+                </div>
+                <div className="pipe-arrow">↓</div>
+                <div className="pipe-stage">
+                  <span className="pipe-label">DECODE</span>
+                  <div className="pipe-desc">Learned readout weight matrix → argmax over vocabulary</div>
+                </div>
+                <div className="pipe-arrow">↓</div>
+                <div className="pipe-stage">
+                  <span className="pipe-label">CONFIDENCE GATE</span>
+                  <div className="pipe-desc">
+                    &gt;{(CONFIDENCE_HIGH * 100).toFixed(0)}% → HIGH &nbsp;|&nbsp;
+                    &gt;{(CONFIDENCE_LOW * 100).toFixed(0)}% → LOW &nbsp;|&nbsp;
+                    else → UNCERTAIN
+                  </div>
+                </div>
+              </div>
+
+              <div className="pipeline-separation-note">
+                <AlertTriangle size={13} />
+                <div>
+                  <strong>CHATBOT PIPELINE IS SEPARATE.</strong>
+                  <br />
+                  AGI mode does NOT call <code>askPeter()</code>, <code>talk.ts</code>, or the readout corpus.
+                  The chatbot uses authored sentences. AGI uses learned readout weights.
+                  Two completely separate code paths.
+                </div>
+              </div>
+
+              {lastResult && (
+                <div className="last-run-summary">
+                  <h4>LAST NEURAL RUN</h4>
+                  <div className="matrix-stats-grid">
+                    <div className="m-card">
+                      <label>REQUEST ID</label>
+                      <span style={{ fontSize: "9px" }}>{lastResult.requestId}</span>
+                    </div>
+                    <div className="m-card">
+                      <label>SPIKES</label>
+                      <span>{lastResult.spikes.toLocaleString()}</span>
+                    </div>
+                    <div className="m-card">
+                      <label>ACTIVE NEURONS</label>
+                      <span>{lastResult.activeNeurons}</span>
+                    </div>
+                    <div className="m-card">
+                      <label>SIM TIME</label>
+                      <span>{lastResult.simDurationMs}ms</span>
+                    </div>
+                    <div className="m-card">
+                      <label>STATE KEY</label>
+                      <span style={{ fontSize: "9px" }}>{lastResult.stateKey}</span>
+                    </div>
+                    <div className="m-card">
+                      <label>CONFIDENCE</label>
+                      <span>{(lastResult.confidence * 100).toFixed(1)}%</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ---- TAB: PLASTICITY ------------------------------------------- */}
           {activeTab === "memory" && (
             <div className="console-tab-content memory-content">
-              <div className="memory-section">
-                <h3>SYNAPTIC WEIGHT MATRIX & HEBBIAN PLASTICITY</h3>
-                <p>
-                  Peter integrates dynamic weight updates through paired spike-timing Hebbian potentiation.
-                  Synaptic traces modify readouts and association vectors without cloud dependencies.
-                </p>
+              <h3 className="section-title">SYNAPTIC PLASTICITY STATE</h3>
+              <p className="section-desc">
+                Real R-STDP (Reward-Modulated STDP) state from <code>localStorage["peter-rstdp-v2"]</code>.
+                These are actual synaptic modifier values computed from spike timing × reward signal.
+                Not a lookup table.
+              </p>
 
-                <div className="matrix-stats-grid">
-                  <div className="m-card">
-                    <label>TOTAL EDGES</label>
-                    <span>71,365</span>
-                  </div>
-                  <div className="m-card">
-                    <label>EXCITATORY FRACTION</label>
-                    <span>68.4%</span>
-                  </div>
-                  <div className="m-card">
-                    <label>INHIBITORY FRACTION</label>
-                    <span>31.6%</span>
-                  </div>
-                  <div className="m-card">
-                    <label>PLASTICITY RULE</label>
-                    <span>STDP / Hebbian</span>
-                  </div>
+              <div className="matrix-stats-grid">
+                <div className="m-card">
+                  <label>MODIFIED SYNAPSES</label>
+                  <span>{lastResult?.modifiedSynapses.toLocaleString() ?? "—"}</span>
                 </div>
-
-                <div className="synapse-activity-preview">
-                  <h4>RECENT POTENTIATION EVENTS</h4>
-                  <div className="event-list">
-                    <div className="event-item">
-                      <span>ME_R → LO_R (Optic Integration)</span>
-                      <b>+0.042 ΔW</b>
-                    </div>
-                    <div className="event-item">
-                      <span>AL_R → CA_R (Olfactory to Mushroom Body)</span>
-                      <b>+0.087 ΔW</b>
-                    </div>
-                    <div className="event-item">
-                      <span>FB → SMP_R (Action Selection)</span>
-                      <b>+0.031 ΔW</b>
-                    </div>
-                  </div>
+                <div className="m-card">
+                  <label>REWARD BASELINE</label>
+                  <span>{lastResult ? lastResult.rewardBaseline.toFixed(4) : "—"}</span>
+                </div>
+                <div className="m-card">
+                  <label>MODIFIER RANGE</label>
+                  <span>[0.25 – 2.50]</span>
+                </div>
+                <div className="m-card">
+                  <label>PLASTICITY RULE</label>
+                  <span>Three-Factor R-STDP</span>
                 </div>
               </div>
+
+              <div className="plasticity-explanation">
+                <h4>HOW LEARNING WORKS</h4>
+                <div className="pipe-stage" style={{ marginBottom: 6 }}>
+                  <code>spike timing → stdpKernel(Δt) → eligibility trace</code>
+                </div>
+                <div className="pipe-arrow" style={{ fontSize: 11, marginBottom: 6 }}>↓</div>
+                <div className="pipe-stage" style={{ marginBottom: 6 }}>
+                  <code>reward - baseline → prediction error</code>
+                </div>
+                <div className="pipe-arrow" style={{ fontSize: 11, marginBottom: 6 }}>↓</div>
+                <div className="pipe-stage">
+                  <code>Δw = η × PE × eligibility → clamped to [0.25, 2.50]</code>
+                </div>
+              </div>
+
+              <div className="note-box">
+                <strong>EXTERNAL MEMORY vs NEURAL MEMORY</strong>
+                <br />
+                <em>External memory</em> (chatbot facts) = the <code>peterMemory</code> store in <code>memory.ts</code>.
+                Used only by the chatbot (<code>talk.ts</code>). Not used here.
+                <br />
+                <em>Neural memory</em> = the synaptic modifier map in <code>RStdpState</code>.
+                Used only by the AGI engine. Not used by the chatbot.
+              </div>
+
+              <button className="toggle-action-btn danger" onClick={handleReset}>
+                <RotateCcw size={13} />
+                RESET SYNAPTIC LEARNING STATE
+              </button>
             </div>
           )}
 
-          {/* Tab 3: Experiments & Current Injection */}
-          {activeTab === "experiment" && (
-            <div className="console-tab-content experiment-content">
-              <div className="experiment-section">
-                <h3>TARGETED MICRO-STIMULATION</h3>
-                <p>
-                  Inject artificial depolaryzing current into specific neuropil clusters to observe downstream cascading activity across the 3D connectome.
-                </p>
-
-                <div className="stimulate-grid">
-                  {REGIONS.map((r) => (
-                    <button
-                      key={r.id}
-                      className="stim-btn"
-                      onClick={() => handleStimulateRegion(r.id)}
-                    >
-                      <Zap size={13} />
-                      <span>STIMULATE {r.label}</span>
-                    </button>
-                  ))}
-                </div>
-
-                <div className="control-switches">
-                  <h4>GLOBAL COGNITIVE CONTROLS</h4>
-                  <button
-                    className="toggle-action-btn"
-                    onClick={() => {
-                      runtime.clearActivity();
-                    }}
-                  >
-                    <RotateCcw size={14} />
-                    <span>FLUSH CURRENT SPIKE TRACES</span>
-                  </button>
-                  <button
-                    className="toggle-action-btn danger"
-                    onClick={() => {
-                      runtime.reset();
-                    }}
-                  >
-                    <span>RESET CAMERA & VIEWPORT</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Tab 4: Neuron Inspector */}
-          {activeTab === "inspector" && selectedNeuron && (
-            <div className="console-tab-content inspector-content">
-              <div className="inspector-card">
-                <div className="insp-header">
-                  <Radio size={16} />
-                  <div>
-                    <h3>{selectedNeuron.name}</h3>
-                    <span className="insp-id">{selectedNeuron.id}</span>
-                  </div>
-                </div>
-
-                <div className="insp-fields">
-                  <div className="field-row">
-                    <label>REGION</label>
-                    <b>{selectedNeuron.region}</b>
-                  </div>
-                  <div className="field-row">
-                    <label>CELL TYPE</label>
-                    <b>{selectedNeuron.cellType}</b>
-                  </div>
-                  <div className="field-row">
-                    <label>TRANSMITTER</label>
-                    <b>{selectedNeuron.neurotransmitter}</b>
-                  </div>
-                  <div className="field-row">
-                    <label>HEMISPHERE</label>
-                    <b>{selectedNeuron.hemisphere}</b>
-                  </div>
-                  <div className="field-row">
-                    <label>COORDINATES</label>
-                    <b>{selectedNeuron.position.map((v) => v.toFixed(1)).join(", ")}</b>
-                  </div>
-                  <div className="field-row">
-                    <label>NODES IN SKELETON</label>
-                    <b>{selectedNeuron.morphology.nodeCount}</b>
-                  </div>
-                </div>
-
-                <div className="insp-actions">
-                  <button
-                    className="insp-btn primary"
-                    onClick={() => runtime.fireNeuron(selectedNeuron.id, runtime.getStatus().simulationTime, 1.0)}
-                  >
-                    <Zap size={14} />
-                    <span>FIRE NEURON</span>
-                  </button>
-                  <button
-                    className="insp-btn"
-                    onClick={() => runtime.focusNeuron(selectedNeuron.id)}
-                  >
-                    <Crosshair size={14} />
-                    <span>CENTER</span>
-                  </button>
-                  <button
-                    className="insp-btn"
-                    onClick={() => runtime.isolateNeuron(status.isolatedNeuronId === selectedNeuron.id ? null : selectedNeuron.id)}
-                  >
-                    <EyeOff size={14} />
-                    <span>{status.isolatedNeuronId === selectedNeuron.id ? "SHOW ALL" : "ISOLATE"}</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Tab 5: AGI Proof & Scientific Validation */}
+          {/* ---- TAB: PROOF ------------------------------------------------ */}
           {activeTab === "validation" && (
             <div className="console-tab-content validation-content">
-              <div className="validation-section">
-                <h3>FLYWIRE AGI COGNITIVE PROOF & SCIENTIFIC AUDIT</h3>
-                <p>
-                  Zero Large Language Models. Zero external API calls. Zero hard-coded logic trees.
-                  Autonomous multi-domain cognitive prediction and three-factor reward-modulated STDP learning
-                  running locally in your browser under 25 MB.
-                </p>
+              <h3 className="section-title">SCIENTIFIC VERIFICATION</h3>
 
-                <div className="matrix-stats-grid">
-                  <div className="m-card">
-                    <label>BIOLOGICAL NEURONS</label>
-                    <span>2,200 LIF</span>
-                  </div>
-                  <div className="m-card">
-                    <label>SYNAPSE EDGES</label>
-                    <span>71,365 Edges</span>
-                  </div>
-                  <div className="m-card">
-                    <label>PLASTICITY RULE</label>
-                    <span>Three-Factor R-STDP</span>
-                  </div>
-                  <div className="m-card">
-                    <label>EXTERNAL API CALLS</label>
-                    <span>0 (Pure Client LIF)</span>
-                  </div>
+              <div className="matrix-stats-grid">
+                <div className="m-card">
+                  <label>NEURONS</label>
+                  <span>2,200 LIF</span>
                 </div>
-
-                <div style={{ marginTop: 8 }}>
-                  <button
-                    className="action-pill-button agi-pill"
-                    style={{ width: "100%", padding: "12px", justifyContent: "center", fontSize: "10px" }}
-                    onClick={handleRunEvaluation}
-                    disabled={evaluating}
-                  >
-                    <ShieldCheck size={16} />
-                    <span>{evaluating ? "RUNNING EXPERIMENTAL BATTERY (LIF SIMULATION)..." : "RUN IN-BROWSER AGI PROOF BATTERY"}</span>
-                  </button>
+                <div className="m-card">
+                  <label>SYNAPSES</label>
+                  <span>71,365</span>
                 </div>
+                <div className="m-card">
+                  <label>INPUT POOL</label>
+                  <span>220 neurons</span>
+                </div>
+                <div className="m-card">
+                  <label>READOUT POOL</label>
+                  <span>660 neurons</span>
+                </div>
+                <div className="m-card">
+                  <label>CHATBOT CALLS</label>
+                  <span style={{ color: "#6be06b" }}>0 (NONE)</span>
+                </div>
+                <div className="m-card">
+                  <label>EXTERNAL API</label>
+                  <span style={{ color: "#6be06b" }}>0 (NONE)</span>
+                </div>
+              </div>
 
-                {evalResults && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
-                    <div className="m-card" style={{ borderColor: "#d4ad71" }}>
-                      <label>DATASET SHA-256 HASH</label>
-                      <span style={{ fontSize: "10px", wordBreak: "break-all" }}>{evalResults.datasetHash}</span>
-                    </div>
+              <button
+                className="action-pill-button agi-pill"
+                style={{ width: "100%", padding: "11px", justifyContent: "center", fontSize: "10px", marginTop: 10 }}
+                onClick={handleRunEval}
+                disabled={evalRunning}
+              >
+                <ShieldCheck size={15} />
+                <span>{evalRunning ? "RUNNING NEURAL EVALUATION..." : "RUN IN-BROWSER EVALUATION (FlyWire substrate)"}</span>
+              </button>
 
-                    <div className="matrix-stats-grid">
-                      <div className="m-card">
-                        <label>BASELINE PRE-TRAIN</label>
-                        <span>{(evalResults.baselineTrainAccuracy * 100).toFixed(1)}%</span>
-                      </div>
-                      <div className="m-card">
-                        <label>POST-TRAINING</label>
-                        <span style={{ color: "#85e085" }}>{(evalResults.postTrainingTrainAccuracy * 100).toFixed(1)}%</span>
-                      </div>
-                      <div className="m-card">
-                        <label>BLIND HOLDOUT (UNSEEN)</label>
-                        <span style={{ color: evalResults.blindHoldoutAccuracy > 0.4 ? "#85e085" : "#e5b364" }}>
-                          {(evalResults.blindHoldoutAccuracy * 100).toFixed(1)}%
-                        </span>
-                      </div>
-                      <div className="m-card">
-                        <label>MODIFIED SYNAPSES</label>
-                        <span>{evalResults.totalModifiedSynapses.toLocaleString()}</span>
-                      </div>
-                    </div>
+              {evalOutput && (
+                <pre className="eval-output">{evalOutput}</pre>
+              )}
 
-                    <div className="synapse-activity-preview">
-                      <h4>PREDICTION VERIFICATION SAMPLES</h4>
-                      <div className="event-list">
-                        {evalResults.detailedResults.slice(0, 6).map((item) => (
-                          <div key={item.id} className="event-item">
-                            <span>
-                              "{item.input}" → expected: <b>{item.expected}</b> | got: <b>{item.predicted}</b>
-                            </span>
-                            <b style={{ color: item.isCorrect ? "#85e085" : "#e59a44" }}>
-                              {item.isCorrect ? "PASSED" : "PARTIAL"} ({item.spikes} spikes)
-                            </b>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
+              <div className="note-box" style={{ marginTop: 12 }}>
+                <strong>WHAT THE EVALUATION PROVES:</strong>
+                <br />
+                Each prediction is made by running a full LIF simulation on the FlyWire connectome.
+                The readout is a dot-product of the spike vector with learned weights.
+                Untrained = random weights → random predictions.
+                After training steps → weights bias toward correct tokens.
+                <br /><br />
+                <strong>WHAT IT DOES NOT PROVE:</strong> general intelligence, reasoning, or understanding.
+                The system is a small biological neural substrate with R-STDP.
               </div>
             </div>
           )}

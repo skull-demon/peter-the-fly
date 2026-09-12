@@ -13,6 +13,7 @@
     "test:learning": "node tests/proof-learning.mjs",
     "test:synapse": "node tests/proof-synapse.mjs",
     "test:security": "node tests/proof-security.mjs",
+    "test:doom": "node tests/proof-doom-benchmark.mjs",
     "publish:brain": "node scripts/publish_shared_brain.mjs"
   },
   "dependencies": {

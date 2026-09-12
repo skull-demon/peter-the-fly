@@ -17,7 +17,7 @@ function CameraRig() {
   const lastRequest = useRef(-1);
   const destination = useRef(new THREE.Vector3(...brain.getStatus().cameraRequest.position));
   const target = useRef(new THREE.Vector3(...brain.getStatus().cameraRequest.target));
-  const interacting = useRef(false);
+  const isAnimating = useRef(false);
 
   useFrame((_, delta) => {
     const controls = controlsRef.current;
@@ -27,16 +27,25 @@ function CameraRig() {
       lastRequest.current = request.serial;
       destination.current.set(...request.position);
       target.current.set(...request.target);
+      isAnimating.current = true;
     }
-    if (interacting.current) return;
-    const lambda = 5.4;
-    camera.position.x = THREE.MathUtils.damp(camera.position.x, destination.current.x, lambda, delta);
-    camera.position.y = THREE.MathUtils.damp(camera.position.y, destination.current.y, lambda, delta);
-    camera.position.z = THREE.MathUtils.damp(camera.position.z, destination.current.z, lambda, delta);
-    controls.target.x = THREE.MathUtils.damp(controls.target.x, target.current.x, lambda, delta);
-    controls.target.y = THREE.MathUtils.damp(controls.target.y, target.current.y, lambda, delta);
-    controls.target.z = THREE.MathUtils.damp(controls.target.z, target.current.z, lambda, delta);
-    controls.update();
+    if (isAnimating.current) {
+      const lambda = 5.0;
+      camera.position.x = THREE.MathUtils.damp(camera.position.x, destination.current.x, lambda, delta);
+      camera.position.y = THREE.MathUtils.damp(camera.position.y, destination.current.y, lambda, delta);
+      camera.position.z = THREE.MathUtils.damp(camera.position.z, destination.current.z, lambda, delta);
+      controls.target.x = THREE.MathUtils.damp(controls.target.x, target.current.x, lambda, delta);
+      controls.target.y = THREE.MathUtils.damp(controls.target.y, target.current.y, lambda, delta);
+      controls.target.z = THREE.MathUtils.damp(controls.target.z, target.current.z, lambda, delta);
+      controls.update();
+
+      if (
+        camera.position.distanceTo(destination.current) < 0.08 &&
+        controls.target.distanceTo(target.current) < 0.08
+      ) {
+        isAnimating.current = false;
+      }
+    }
   });
 
   return (
@@ -44,19 +53,14 @@ function CameraRig() {
       ref={controlsRef}
       makeDefault
       enableDamping
-      dampingFactor={0.075}
-      minDistance={2.2}
-      maxDistance={28}
-      rotateSpeed={0.48}
-      zoomSpeed={0.7}
-      panSpeed={0.55}
+      dampingFactor={0.08}
+      minDistance={1.0}
+      maxDistance={65}
+      rotateSpeed={0.6}
+      zoomSpeed={1.2}
+      panSpeed={0.7}
       onStart={() => {
-        interacting.current = true;
-      }}
-      onEnd={() => {
-        interacting.current = false;
-        destination.current.copy(camera.position);
-        if (controlsRef.current) target.current.copy(controlsRef.current.target);
+        isAnimating.current = false;
       }}
     />
   );

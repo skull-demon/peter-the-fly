@@ -13,6 +13,7 @@ node_modules/
 dist/
 tests/.brain.build.mjs
 tests/.talk-debug.mjs
+tests/.agi.bundle.mjs
 .esbuild/
 
 # NOTE: public/brain/ artifacts SHOULD be committed (or built in CI) so

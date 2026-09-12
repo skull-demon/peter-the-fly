@@ -11,12 +11,11 @@ import {
   resetPolicy,
   epsilonOf,
   type DoomPolicy,
-  type DoomArms,
   NUM_SECTORS,
 } from "../brain/doom";
 import { loadPeterRuntime, type PeterRuntime } from "../brain/load";
 import { streamDoomStepTo3D } from "./simBridge";
-import { Play, Pause, RotateCcw, StepForward, X, Gamepad2, Activity, Zap } from "lucide-react";
+import { Play, Pause, RotateCcw, StepForward, X, Gamepad2, Activity } from "lucide-react";
 
 type Props = {
   open: boolean;
@@ -32,8 +31,8 @@ export default function DoomModal({ open, onClose }: Props) {
   const [lastReward, setLastReward] = useState<number>(0);
   const [cumulativeReward, setCumulativeReward] = useState<number>(0);
   const [sectors, setSectors] = useState<number[]>([0.2, 0.4, 0.8, 0.5, 0.2]);
-  const [armCounts, setArmCounts] = useState<number[]>([0, 0, 0, 0]);
   const [simSpikes, setSimSpikes] = useState<number>(0);
+  const [doomViewMode, setDoomViewMode] = useState<"wasm" | "neural">("wasm");
   const loopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameCanvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -41,7 +40,7 @@ export default function DoomModal({ open, onClose }: Props) {
   useEffect(() => {
     if (open) {
       loadPeterRuntime().then(setRuntime).catch(() => {});
-      brain.cameraPreset("CENTRAL_COMPLEX");
+      brain.cameraPreset("WHOLE_BRAIN");
       const timer = setTimeout(() => {
         drawDoomCanvas([0.2, 0.4, 0.8, 0.5, 0.2], "READY", 0);
       }, 50);
@@ -68,8 +67,7 @@ export default function DoomModal({ open, onClose }: Props) {
     const brightArray = Float64Array.from(currentSectors);
     const seed = (Date.now() & 0xffff) ^ (step * 7919);
     const arms = doomArms(brightArray, runtime.bundle, seed);
-    setArmCounts(Array.from(arms.counts));
-    setSimSpikes(arms.sim.totalSpikes);
+    setSimSpikes(Array.from(arms.sim.binCounts).reduce((a, b) => a + b, 0));
 
     // 2. Select action via epsilon-greedy policy
     const actionIdx = chooseAction(arms, policy);
@@ -225,17 +223,53 @@ export default function DoomModal({ open, onClose }: Props) {
         <div className="doom-body">
           {/* Left: DOOM Viewport & Telemetry */}
           <div className="doom-left-pane">
-            <div className="doom-screen-frame">
-              <canvas
-                ref={frameCanvasRef}
-                width={360}
-                height={240}
-                className="doom-canvas"
-              />
-              <div className="doom-hud-overlay">
-                <span className="hud-metric">ACTION: <b>{lastAction}</b></span>
-                <span className="hud-metric">REWARD: <b className={lastReward > 0 ? "reward-pos" : ""}>+{lastReward.toFixed(1)}</b></span>
-              </div>
+            {/* Screen Mode Selector */}
+            <div className="doom-view-toggle" style={{ display: "flex", gap: "6px", marginBottom: "8px" }}>
+              <button
+                className={`action-pill-button ${doomViewMode === "wasm" ? "primary-pill" : ""}`}
+                onClick={() => setDoomViewMode("wasm")}
+                style={{ padding: "4px 10px", fontSize: "8px" }}
+              >
+                LIVE WASM DOOM
+              </button>
+              <button
+                className={`action-pill-button ${doomViewMode === "neural" ? "primary-pill" : ""}`}
+                onClick={() => setDoomViewMode("neural")}
+                style={{ padding: "4px 10px", fontSize: "8px" }}
+              >
+                RETINA SIMULATOR
+              </button>
+            </div>
+
+            <div className="doom-screen-frame" style={{ position: "relative", minHeight: "260px" }}>
+              {doomViewMode === "wasm" ? (
+                <iframe
+                  src="https://diekmann.github.io/wasm-fizzbuzz/doom/"
+                  title="WebAssembly Linux DOOM"
+                  className="doom-iframe"
+                  style={{
+                    width: "100%",
+                    height: "260px",
+                    border: "none",
+                    borderRadius: "4px",
+                    background: "#000",
+                  }}
+                  sandbox="allow-scripts allow-same-origin"
+                />
+              ) : (
+                <>
+                  <canvas
+                    ref={frameCanvasRef}
+                    width={360}
+                    height={240}
+                    className="doom-canvas"
+                  />
+                  <div className="doom-hud-overlay">
+                    <span className="hud-metric">ACTION: <b>{lastAction}</b></span>
+                    <span className="hud-metric">REWARD: <b className={lastReward > 0 ? "reward-pos" : ""}>+{lastReward.toFixed(1)}</b></span>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Retina Sectors */}
@@ -261,7 +295,7 @@ export default function DoomModal({ open, onClose }: Props) {
                 </div>
                 <div>
                   <label>TOTAL STEPS</label>
-                  <span>{policy.totalSteps.toLocaleString()}</span>
+                  <span>{policy.updates.toLocaleString()}</span>
                 </div>
                 <div>
                   <label>CUMULATIVE REWARD</label>
@@ -282,11 +316,11 @@ export default function DoomModal({ open, onClose }: Props) {
                       <div
                         className="q-bar-fill"
                         style={{
-                          width: `${Math.min(100, Math.max(5, (policy.values[i] + 1) * 35))}%`,
+                          width: `${Math.min(100, Math.max(5, (policy.q[i] + 1) * 35))}%`,
                         }}
                       />
                     </div>
-                    <span className="q-val">{policy.values[i].toFixed(2)} (n={policy.counts[i]})</span>
+                    <span className="q-val">{policy.q[i].toFixed(2)} (n={policy.n[i]})</span>
                   </div>
                 ))}
               </div>

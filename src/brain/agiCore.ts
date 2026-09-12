@@ -13,7 +13,7 @@
 
 import type { BrainBundle } from "./bundle";
 import { simulateBrain, readoutState, stateKey, type SimResult } from "./sim";
-import { stimulusForText, tokenize } from "./spikegen";
+import { stimulusForText } from "./spikegen";
 import {
   type RStdpState,
   loadRStdpState,
@@ -36,6 +36,13 @@ export interface AgiPrediction {
   stateKeyStr: string;
 }
 
+export interface TrainStepOptions {
+  enableNeuralPlasticity?: boolean; // default true (Ablation 2: false)
+  enableReadoutLearning?: boolean;  // default true (Ablation 5: false)
+  forcedReward?: number;            // default undefined (Ablation 3, 10: 0.0)
+  customEta?: number;
+}
+
 export interface AgiLearningOutcome {
   prediction: AgiPrediction;
   expectedToken: string;
@@ -44,6 +51,10 @@ export interface AgiLearningOutcome {
   meanDelta: number;
   totalModifiedSynapses: number;
   accuracy: number;
+  potentiatedSynapses: number;
+  depressedSynapses: number;
+  maxWeightChange: number;
+  meanEligibility: number;
 }
 
 export class FlyWireAgiCore {
@@ -103,10 +114,16 @@ export class FlyWireAgiCore {
       readoutActivity[i] = rowSpikes;
     }
 
-    // Decode prediction over candidate vocab using normalized population activity
+    // Mean-center the readout activity to remove DC baseline
+    let actSum = 0.0;
+    for (let i = 0; i < readoutCount; i++) actSum += readoutActivity[i];
+    const actMean = actSum / readoutCount;
+
     let actNorm = 0.0;
+    const actCentered = new Float64Array(readoutCount);
     for (let i = 0; i < readoutCount; i++) {
-      actNorm += readoutActivity[i] * readoutActivity[i];
+      actCentered[i] = readoutActivity[i] - actMean;
+      actNorm += actCentered[i] * actCentered[i];
     }
     actNorm = Math.sqrt(actNorm) || 1.0;
 
@@ -115,9 +132,13 @@ export class FlyWireAgiCore {
 
     for (const cand of candidateVocab) {
       const weights = this.state.readoutWeights.get(cand) ?? this.initReadoutWeights(cand, readoutCount);
+      let wNorm = 0.0;
+      for (let i = 0; i < readoutCount; i++) wNorm += weights[i] * weights[i];
+      wNorm = Math.sqrt(wNorm) || 1.0;
+
       let score = 0.0;
       for (let i = 0; i < readoutCount; i++) {
-        score += (readoutActivity[i] / actNorm) * weights[i];
+        score += (actCentered[i] / actNorm) * (weights[i] / wNorm);
       }
       if (score > bestScore) {
         bestScore = score;
@@ -125,7 +146,14 @@ export class FlyWireAgiCore {
       }
     }
 
-    const totalSpikes = sim.totalSpikes;
+    let totalSpikes = 0;
+    for (let s = 0; s < sim.spikes.length; s++) {
+      const step = sim.spikes[s];
+      for (let n = 0; n < step.length; n++) {
+        if (step[n]) totalSpikes++;
+      }
+    }
+
     let activeNeurons = 0;
     for (let n = 0; n < this.bundle.neuronCount; n++) {
       let fired = false;
@@ -156,44 +184,87 @@ export class FlyWireAgiCore {
   /**
    * Reinforces or punishes the neural trajectory using Reward-Modulated STDP.
    */
-  trainStep(input: string, expectedToken: string, candidateVocab: string[], seedOffset = 0): AgiLearningOutcome {
+  trainStep(
+    input: string,
+    expectedToken: string,
+    candidateVocab: string[],
+    seedOffset = 0,
+    options?: TrainStepOptions
+  ): AgiLearningOutcome {
     // 1. Predict first (genuine autonomous guess)
     const prediction = this.predict(input, candidateVocab, seedOffset);
 
-    // 2. Evaluate reward from environment
+    // 2. Evaluate reward from environment (or override if forced)
     const isCorrect = prediction.predictedToken.trim().toLowerCase() === expectedToken.trim().toLowerCase();
-    const reward = isCorrect ? 1.0 : -1.0;
+    const reward = options?.forcedReward !== undefined ? options.forcedReward : (isCorrect ? 1.0 : -1.0);
 
-    // 3. Compute R-STDP eligibility traces across the 71,365 connectome edges
-    const traces = computeEligibilityTraces(this.bundle, prediction.sim);
+    let nextState = this.state;
+    let modifiedCount = 0;
+    let meanDelta = 0.0;
+    let potentiatedCount = 0;
+    let depressedCount = 0;
+    let maxDelta = 0.0;
+    let meanElig = 0.0;
 
-    // 4. Modulate internal synapses
-    const { nextState, modifiedCount, meanDelta } = applyRewardModulation(this.state, traces, reward);
-
-    // 5. Update readout weights via Hebbian error gradient on normalized vector
-    const readoutCount = this.bundle.readoutRows.length;
-    let actNorm = 0.0;
-    for (let i = 0; i < readoutCount; i++) {
-      actNorm += prediction.readoutVector[i] * prediction.readoutVector[i];
+    // 3. Compute R-STDP eligibility traces across connectome edges if plasticity enabled
+    const enablePlasticity = options?.enableNeuralPlasticity !== false;
+    if (enablePlasticity) {
+      const traces = computeEligibilityTraces(this.bundle, prediction.sim, 450);
+      const res = applyRewardModulation(this.state, traces, reward, options?.customEta);
+      nextState = res.nextState;
+      modifiedCount = res.metrics.changedSynapses;
+      meanDelta = res.metrics.meanWeightChange;
+      potentiatedCount = res.metrics.potentiatedSynapses;
+      depressedCount = res.metrics.depressedSynapses;
+      maxDelta = res.metrics.maxWeightChange;
+      meanElig = res.metrics.meanEligibility;
     }
-    actNorm = Math.sqrt(actNorm) || 1.0;
 
-    const lr = 0.25;
+    // 4. Update readout weights via Hebbian error gradient if readout learning enabled
+    const enableReadout = options?.enableReadoutLearning !== false;
+    if (enableReadout) {
+      const readoutCount = this.bundle.readoutRows.length;
+      let actSum = 0.0;
+      for (let i = 0; i < readoutCount; i++) actSum += prediction.readoutVector[i];
+      const actMean = actSum / readoutCount;
 
-    // Strengthen correct class weights
-    const correctWeights = nextState.readoutWeights.get(expectedToken) ?? this.initReadoutWeights(expectedToken, readoutCount);
-    for (let i = 0; i < readoutCount; i++) {
-      correctWeights[i] = correctWeights[i] * 0.995 + lr * (prediction.readoutVector[i] / actNorm);
-    }
-    nextState.readoutWeights.set(expectedToken, correctWeights);
-
-    // Depress incorrect prediction
-    if (!isCorrect) {
-      const wrongWeights = nextState.readoutWeights.get(prediction.predictedToken) ?? this.initReadoutWeights(prediction.predictedToken, readoutCount);
+      let actNorm = 0.0;
+      const actCentered = new Float64Array(readoutCount);
       for (let i = 0; i < readoutCount; i++) {
-        wrongWeights[i] = wrongWeights[i] * 0.995 - lr * 0.5 * (prediction.readoutVector[i] / actNorm);
+        actCentered[i] = prediction.readoutVector[i] - actMean;
+        actNorm += actCentered[i] * actCentered[i];
       }
-      nextState.readoutWeights.set(prediction.predictedToken, wrongWeights);
+      actNorm = Math.sqrt(actNorm) || 1.0;
+
+      const lr = 0.50;
+
+      // Strengthen correct class weights
+      const correctWeights = nextState.readoutWeights.get(expectedToken) ?? this.initReadoutWeights(expectedToken, readoutCount);
+      for (let i = 0; i < readoutCount; i++) {
+        correctWeights[i] = correctWeights[i] * 0.97 + lr * (actCentered[i] / actNorm);
+      }
+      // Normalize correct class weights to unit norm to prevent magnitude explosion
+      let cwNorm = 0.0;
+      for (let i = 0; i < readoutCount; i++) cwNorm += correctWeights[i] * correctWeights[i];
+      cwNorm = Math.sqrt(cwNorm) || 1.0;
+      for (let i = 0; i < readoutCount; i++) correctWeights[i] /= cwNorm;
+      nextState.readoutWeights.set(expectedToken, correctWeights);
+
+      // Depress competing candidate classes — penalty proportional to lr
+      const competitors = candidateVocab.filter((c) => c !== expectedToken);
+      const penalty = lr * 0.6 / Math.max(1, competitors.length);
+      for (const cand of competitors) {
+        const candWeights = nextState.readoutWeights.get(cand) ?? this.initReadoutWeights(cand, readoutCount);
+        for (let i = 0; i < readoutCount; i++) {
+          candWeights[i] = candWeights[i] * 0.97 - penalty * (actCentered[i] / actNorm);
+        }
+        // Normalize competitor weights too
+        let cnNorm = 0.0;
+        for (let i = 0; i < readoutCount; i++) cnNorm += candWeights[i] * candWeights[i];
+        cnNorm = Math.sqrt(cnNorm) || 1.0;
+        for (let i = 0; i < readoutCount; i++) candWeights[i] /= cnNorm;
+        nextState.readoutWeights.set(cand, candWeights);
+      }
     }
 
     this.state = nextState;
@@ -207,6 +278,10 @@ export class FlyWireAgiCore {
       meanDelta,
       totalModifiedSynapses: this.state.modifiers.size,
       accuracy: isCorrect ? 1.0 : 0.0,
+      potentiatedSynapses: potentiatedCount,
+      depressedSynapses: depressedCount,
+      maxWeightChange: maxDelta,
+      meanEligibility: meanElig,
     };
   }
 

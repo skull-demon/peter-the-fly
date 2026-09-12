@@ -1,4 +1,4 @@
-# Deploying PETER THE FLY to Cloudflare Pages
+﻿# Deploying PETER THE FLY to Cloudflare Pages
 
 The whole site is a single static build plus two committed brain artifacts —
 no server, no functions, no cost.
@@ -38,10 +38,13 @@ npm run build
 npx wrangler pages deploy dist --project-name=peter-the-fly
 ```
 
+## Bundle Size
+
+Current production bundle size is ~1.52 MB (gzip: 430 KB). This is well under Cloudflare Pages' 25 MB file limit.
+
 ## Data policy on Cloudflare
 
-- `data/flywire/raw/` (1.1 GB official cache) is **gitignored** and never
-  deployed. Only the 1.5 MB distilled bundle ships.
+- `data/flywire/raw/` (1.1 GB official cache) is **gitignored** and never deployed.
 - FlyWire data is **CC BY-NC 4.0** — attribution stays in the UI disclosure
   popup and `THIRD-PARTY-NOTICES.md`. Non-commercial use only.
 
@@ -50,6 +53,7 @@ npx wrangler pages deploy dist --project-name=peter-the-fly
 1. Boot screen completes with truthful status lines.
 2. Type `hello` → reply streams with a real telemetry note
    (`FAFB v783 · 2,200 NEURONS · <n> SPIKES · <ms>MS`).
-3. Brain map lights regions (ME_R/LO_R/AVLP_R/PVLP_R expected for visual
-   stimulation).
-4. Same message twice → identical spike count (deterministic brain).
+3. Enter **AGI MODE** from the top masthead. Verify memory tab displays.
+4. Open **DOOM** from the top masthead. Wait for brain to start issuing movement commands.
+5. Brain map / Inline 3D viewer lights regions (ME_R/LO_R/AVLP_R/PVLP_R expected for visual stimulation).
+6. Same message twice → identical spike count (deterministic brain).

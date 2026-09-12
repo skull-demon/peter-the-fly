@@ -31,6 +31,7 @@ import {
   type MemoryState,
   type NeuralTrace,
 } from "./memory";
+import { extractNeuralContext, generateMedullaResponse } from "./medullaEngine";
 
 export type Readout = {
   format: string;
@@ -88,15 +89,6 @@ export function msgSeed(text: string): number {
   return h >>> 0;
 }
 
-function keyDistance(a: string, b: string): number {
-  const as = a.split("."), bs = b.split(".");
-  let d = 0;
-  for (let i = 0; i < Math.min(as.length, bs.length); i++) {
-    d += Math.abs(Number(as[i]) - Number(bs[i]));
-  }
-  return d;
-}
-
 /**
  * Deterministic PRNG (mulberry32) seeded from the message seed XOR the live
  * neural state key. This is the honest coupling: the fly's actual spike
@@ -124,39 +116,12 @@ function normalizePrompt(text: string): string[] {
   return tokenize(text).map((w) => fold[w] ?? w);
 }
 
-function tokenOverlap(a: string[], b: string[]): number {
-  const setA = new Set(a);
-  const setB = new Set(b);
-  if (!setA.size || !setB.size) return 0;
-  let inter = 0;
-  setA.forEach((w) => {
-    if (setB.has(w)) inter++;
-  });
-  return inter / Math.max(setA.size, setB.size);
-}
-
 function replyForPrompt(normTokens: string[], readout: Readout): string | null {
   for (const entry of readout.replies) {
     const pt = entry.tokens?.length ? entry.tokens : tokenize(entry.prompt);
     if (pt.length === normTokens.length && pt.every((w, i) => w === normTokens[i])) return entry.text;
   }
   return null;
-}
-
-/**
- * No taught prompt matched lexically: the LIVE NEURAL STATE picks the reply.
- * Taught replies are ranked by their training-time state key's distance to
- * the current state key; the top-3 are candidates and the spike-seeded RNG
- * chooses among them. Which sentence Peter says is genuinely decided by his
- * spiking - but he always speaks a complete taught sentence, never a
- * fragmented word-walk.
- */
-function replyFromNeuralState(key: string, rng: () => number, readout: Readout): string | null {
-  if (!readout.replies.length) return null;
-  const ranked = [...readout.replies].sort((a, b) => keyDistance(key, a.key) - keyDistance(key, b.key));
-  const candidates = ranked.slice(0, 3);
-  const pick = candidates[Math.floor(rng() * candidates.length) % candidates.length];
-  return pick.text;
 }
 
 function applyCase(template: string, text: string): string {
@@ -281,27 +246,15 @@ export function talk(
       memoryEvent = { kind: "unknown", detail: "no matching fact" };
     }
   } else {
-    // 4c. The usual neural-state sentence selection.
+    // 4c. Medulla Cognitive Generation: Grounded directly in live FlyWire connectome spikes & memory
     if (exact) {
       body = exact;
+      memoryEvent = { kind: "none", detail: "exact taught reply" };
     } else {
-      let bestOverlap = 0;
-      let bestText: string | null = null;
-      for (const entry of readout.replies) {
-        const pt = entry.tokens?.length ? entry.tokens : tokenize(entry.prompt);
-        const ov = tokenOverlap(normTokens, pt);
-        if (ov > bestOverlap) {
-          bestOverlap = ov;
-          bestText = entry.text;
-        }
-      }
-      body =
-        bestOverlap >= 0.55 && bestText
-          ? bestText
-          : replyFromNeuralState(key, rng, readout) ??
-            readout.fallbacks[Math.floor(rng() * readout.fallbacks.length) % readout.fallbacks.length];
+      const neuralCtx = extractNeuralContext(bundle, sim, key);
+      body = generateMedullaResponse(text, neuralCtx, memoryAfter, rng);
+      memoryEvent = { kind: "none", detail: `medulla:${neuralCtx.medullaSpikes}·total:${neuralCtx.totalSpikes}` };
     }
-    memoryEvent = { kind: "none", detail: "" };
   }
   body = applyCase(body, text);
 
