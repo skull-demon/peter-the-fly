@@ -141,7 +141,7 @@ export default function LeftPanel({
         <p className="bench-activity-note eyebrow">
           LAST TRANSMISSION · {telemetry.spike_count.toLocaleString()} SPIKES · {telemetry.active_neurons.toLocaleString()} NEURONS ACTIVE ·{" "}
           <button className="see-neurons-btn" onClick={handleShow3DBrain}>
-            SEE IN 3D →
+            SEE NEURONS →
           </button>
         </p>
       )}

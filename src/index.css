@@ -457,36 +457,36 @@ button:focus-visible, a:focus-visible { outline: 2px solid #99734b; outline-offs
 }
 
 .masthead-mode-btn.agi-nav-btn {
-  background: linear-gradient(135deg, #182c2a 0%, #0d1e1c 100%);
-  color: #79ebd8;
-  border: 1px solid #43b5a4;
-  box-shadow: 0 0 12px rgba(67, 181, 164, 0.25);
+  background: #2b2219;
+  color: #faeed4;
+  border: 1px solid #d4ad71;
+  box-shadow: 0 0 10px rgba(212, 173, 113, 0.2);
 }
 
 .masthead-mode-btn.agi-nav-btn:hover {
-  background: linear-gradient(135deg, #24423f 0%, #152d2a 100%);
-  border-color: #79ebd8;
+  background: #4a3823;
+  border-color: #e5c088;
   color: #ffffff;
-  box-shadow: 0 0 16px rgba(121, 235, 216, 0.45);
+  box-shadow: 0 0 14px rgba(212, 173, 113, 0.45);
   transform: translateY(-1px);
 }
 
 .masthead-mode-btn.doom-nav-btn {
-  background: linear-gradient(135deg, #2b1717 0%, #1c0d0d 100%);
-  color: #ff9d80;
-  border: 1px solid #d45943;
-  box-shadow: 0 0 12px rgba(212, 89, 67, 0.25);
+  background: #2c1a16;
+  color: #f7d2cb;
+  border: 1px solid #9e4e3a;
+  box-shadow: 0 0 10px rgba(158, 78, 58, 0.2);
 }
 
 .masthead-mode-btn.doom-nav-btn:hover {
-  background: linear-gradient(135deg, #3d2020 0%, #2a1313 100%);
-  border-color: #ff9d80;
+  background: #3e221b;
+  border-color: #c95e46;
   color: #ffffff;
-  box-shadow: 0 0 16px rgba(255, 157, 128, 0.45);
+  box-shadow: 0 0 14px rgba(201, 94, 70, 0.4);
   transform: translateY(-1px);
 }
 
-/* Action pill buttons in LeftPanel */
+/* Action pill buttons in LeftPanel — walnut / brass theme */
 .action-pill-button {
   display: inline-flex;
   align-items: center;
@@ -509,50 +509,56 @@ button:focus-visible, a:focus-visible { outline: 2px solid #99734b; outline-offs
   border-color: #3b3020;
 }
 
+/* primary: dark walnut with amber glow — LIVE 3D NEURONS */
 .action-pill-button.primary-pill {
-  background: #112826;
-  border-color: #3aa698;
-  color: #70edd8;
-  box-shadow: 0 2px 8px rgba(23, 64, 59, 0.25);
+  background: #2b2219;
+  border-color: #d4ad71;
+  color: #faeed4;
+  box-shadow: 0 1px 4px rgba(212, 173, 113, 0.25);
+  font-weight: 700;
 }
 
 .action-pill-button.primary-pill:hover {
-  background: #1c3d3a;
-  border-color: #70edd8;
+  background: #4a3823;
+  border-color: #e5c088;
   color: #ffffff;
-  box-shadow: 0 0 14px rgba(112, 237, 216, 0.45);
+  box-shadow: 0 2px 10px rgba(212, 173, 113, 0.45);
 }
 
+/* doom: dark ember red */
 .action-pill-button.doom-pill {
-  background: #2b1414;
-  border-color: #d15841;
-  color: #ffa58c;
+  background: #2c1a16;
+  border-color: #9e4e3a;
+  color: #f7d2cb;
 }
 
 .action-pill-button.doom-pill:hover {
-  background: #3d1c1c;
-  border-color: #ffa58c;
+  background: #3e221b;
+  border-color: #c95e46;
   color: #ffffff;
+  box-shadow: 0 2px 8px rgba(201, 94, 70, 0.4);
 }
 
+/* see-neurons inline link — matches walnut/brass */
 .see-neurons-btn {
   display: inline-block;
   padding: 2px 8px;
   margin-left: 6px;
-  background: #1a322e;
-  border: 1px solid #4eb8a6;
-  border-radius: 3px;
-  color: #70edd8 !important;
-  font-weight: 700 !important;
+  background: #2b2219;
+  border: 1px solid #9e7a43;
+  border-radius: 2px;
+  color: #faeed4;
+  font: 700 8px/1 var(--font-mono);
+  letter-spacing: 0.14em;
   cursor: pointer;
-  letter-spacing: 0.12em;
   transition: all 0.15s ease;
 }
 
 .see-neurons-btn:hover {
-  background: #254a44;
-  color: #ffffff !important;
-  box-shadow: 0 0 10px rgba(112, 237, 216, 0.5);
+  background: #4a3823;
+  border-color: #d4ad71;
+  color: #ffffff;
+  box-shadow: 0 0 8px rgba(212, 173, 113, 0.4);
 }
 
 /* ==========================================================================
@@ -1061,7 +1067,8 @@ button:focus-visible, a:focus-visible { outline: 2px solid #99734b; outline-offs
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  /* Use the same font stack as the rest of the site */
+  font-family: var(--font-mono), ui-monospace, monospace;
 }
 
 .agi-masthead {
@@ -1504,9 +1511,13 @@ button:focus-visible, a:focus-visible { outline: 2px solid #99734b; outline-offs
 }
 
 .msg-body {
-  font-size: 13px;
-  line-height: 1.55;
+  font: 400 13px/1.6 var(--font-sans);
   color: #faeed4;
+}
+
+.agi-msg.peter .msg-body {
+  font: 500 14px/1.5 var(--font-editorial);
+  color: #eeddc0;
 }
 
 .thinking-indicator {
@@ -1797,6 +1808,129 @@ button:focus-visible, a:focus-visible { outline: 2px solid #99734b; outline-offs
 .insp-btn.primary:hover {
   background: #4e3823;
   color: #ffffff;
+}
+
+
+/* ==========================================================================
+   AGI WORKSPACE — RESPONSIVE / MOBILE
+   ========================================================================== */
+
+/* Tablet: hide stats strip text, collapse brain pane */
+@media (max-width: 1024px) {
+  .agi-main-grid {
+    grid-template-columns: 1fr 400px;
+  }
+  .agi-stats-strip {
+    display: none;
+  }
+  .agi-masthead {
+    padding: 0 14px;
+  }
+  .console-tabs {
+    gap: 2px;
+    padding: 0 10px;
+  }
+}
+
+/* Mobile landscape / small tablet: stack brain on top, console below */
+@media (max-width: 768px) {
+  .agi-main-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: 42vh 1fr;
+  }
+  .agi-brain-pane {
+    border-right: none;
+    border-bottom: 1px solid rgba(212, 173, 113, 0.2);
+    min-height: 0;
+  }
+  .agi-masthead {
+    flex: 0 0 48px;
+    padding: 0 12px;
+    gap: 6px;
+  }
+  .agi-masthead h1 {
+    font-size: 10px;
+  }
+  .agi-tag {
+    display: none;
+  }
+  .agi-subtitle {
+    display: none;
+  }
+  .agi-btn span {
+    display: none;
+  }
+  .agi-btn {
+    padding: 6px 10px;
+  }
+  .brain-overlay-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .search-box {
+    width: 200px;
+  }
+  .preset-buttons {
+    flex-wrap: wrap;
+    gap: 3px;
+  }
+  .preset-btn {
+    padding: 4px 7px;
+    font-size: 7.5px;
+  }
+  .brain-overlay-bottom {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .region-chips-strip {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .console-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    gap: 0;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .console-tabs::-webkit-scrollbar { display: none; }
+  .tab-btn span {
+    font-size: 7.5px;
+  }
+}
+
+/* Phone portrait: even more compact */
+@media (max-width: 480px) {
+  .agi-main-grid {
+    grid-template-rows: 36vh 1fr;
+  }
+  .agi-logo-dot {
+    display: none;
+  }
+  .agi-masthead h1 {
+    font-size: 9px;
+  }
+  .stat-pill {
+    display: none;
+  }
+  .search-box {
+    width: 160px;
+  }
+  .console-tab-content {
+    padding: 10px 12px;
+  }
+  .chat-input-form input {
+    font-size: 12px;
+    padding: 8px 10px;
+  }
+  .chat-input-form button {
+    padding: 8px 12px;
+    font-size: 8px;
+  }
+  .matrix-stats-grid {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
