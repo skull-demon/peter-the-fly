@@ -41,7 +41,7 @@ from brainpack.lif import readout_state, simulate, state_key
 from brainpack.spikegen import fnv1a32, stimulus_from_tokens
 
 PUBLIC_BRAIN_DIR = Path(__file__).resolve().parents[1] / "public" / "brain"
-BUNDLE_PATH = PUBLIC_BRAIN_DIR / "peter.br"
+BUNDLE_PATH = PUBLIC_BRAIN_DIR / "peter.brain"
 READOUT_PATH = PUBLIC_BRAIN_DIR / "peter.readout.json"
 
 DURATION_MS = 600.0

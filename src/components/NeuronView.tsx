@@ -93,15 +93,38 @@ export default function NeuronView({ telemetry, sim, compact = false }: Props) {
       const maxStep =
         playheadMs === null ? steps - 1 : Math.min(steps - 1, Math.floor((playheadMs / durationMs) * steps));
 
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i].row;
-        const y = padY + i * rowH + rowH / 2;
+      if (compact) {
+        // Compact strip: population firing rate over time (PSTH). One column
+        // per simulation step; height = fraction of the pool spiking. All 660
+        // neurons are represented even at thumbnail size.
+        const plotH = h - padY * 2;
+        let maxRate = 1;
+        const rates = new Float32Array(steps);
+        for (let t = 0; t < steps; t++) {
+          const step = sim.spikes[t];
+          let c = 0;
+          for (let i = 0; i < rows.length; i++) if (step[rows[i].row]) c++;
+          rates[t] = c;
+          if (c > maxRate) maxRate = c;
+        }
         for (let t = 0; t <= maxStep; t++) {
-          if (sim.spikes[t][row]) {
-            const x = padL + (t / (steps - 1)) * plotW;
-            const isPlayhead = playheadMs !== null && t >= maxStep - 8;
-            ctx.fillStyle = isPlayhead ? DOT_HOT : DOT;
-            ctx.fillRect(x, y - rowH / 2, playheadMs !== null ? 1.6 : 1.2, rowH);
+          const x = padL + (t / (steps - 1)) * plotW;
+          const barH = (rates[t] / maxRate) * plotH;
+          const isPlayhead = playheadMs !== null && t >= maxStep - 8;
+          ctx.fillStyle = isPlayhead ? DOT_HOT : DOT;
+          ctx.fillRect(x, padY + plotH - barH, playheadMs !== null ? 1.6 : 1.1, barH);
+        }
+      } else {
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i].row;
+          const y = padY + i * rowH + rowH / 2;
+          for (let t = 0; t <= maxStep; t++) {
+            if (sim.spikes[t][row]) {
+              const x = padL + (t / (steps - 1)) * plotW;
+              const isPlayhead = playheadMs !== null && t >= maxStep - 8;
+              ctx.fillStyle = isPlayhead ? DOT_HOT : DOT;
+              ctx.fillRect(x, y - rowH / 2, playheadMs !== null ? 1.6 : 1.2, rowH);
+            }
           }
         }
       }
@@ -135,7 +158,7 @@ export default function NeuronView({ telemetry, sim, compact = false }: Props) {
   return (
     <div className={compact ? "neuron-view neuron-view-compact" : "neuron-view"}>
       <div className="neuron-view-heading">
-        <span className="eyebrow">SPIKE RASTER · {nNeurons} OUTPUT NEURONS</span>
+        <span className="eyebrow">{compact ? "POPULATION FIRING · " : "SPIKE RASTER · "}{nNeurons} OUTPUT NEURONS</span>
         <span className="neuron-view-count">{nSpikes} SPIKES / 600 MS</span>
       </div>
       <canvas

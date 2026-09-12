@@ -39,7 +39,7 @@ from brainpack.lif import simulate
 from brainpack.spikegen import stimulus_from_tokens
 
 PUBLIC_BRAIN_DIR = Path(__file__).resolve().parents[1] / "public" / "brain"
-BUNDLE_PATH = PUBLIC_BRAIN_DIR / "peter.br"
+BUNDLE_PATH = PUBLIC_BRAIN_DIR / "peter.brain"
 
 failures: list[str] = []
 
@@ -148,7 +148,7 @@ def verify_sidecar() -> None:
     if side.exists():
         data = json.loads(side.read_text())
         check("sidecar dataset", data.get("dataset") == "FAFB v783")
-        check("sidecar bundle path", data.get("bundle") == "/brain/peter.br")
+        check("sidecar bundle path", data.get("bundle") == "/brain/peter.brain")
         check(
             "sidecar counts match bundle",
             read_bundle(BUNDLE_PATH).neuron_count == data.get("counts", {}).get("neurons"),

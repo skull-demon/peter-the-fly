@@ -31,7 +31,7 @@ export function loadPeterRuntime(
   runtimePromise = (async () => {
     try {
       onStatus?.({ phase: "loading-bundle" });
-      const res = await fetch("/brain/peter.br");
+      const res = await fetch("/brain/peter.brain");
       if (!res.ok) throw new Error(`brain bundle unavailable (HTTP ${res.status})`);
       const buf = await res.arrayBuffer();
       const bundle = parseBrainBundle(buf);
@@ -56,7 +56,7 @@ export function loadPeterRuntime(
 /** True when the build ships a real brain bundle (checked cheaply). */
 export async function probeBrainAvailable(): Promise<boolean> {
   try {
-    const res = await fetch("/brain/peter.br", { method: "HEAD" });
+    const res = await fetch("/brain/peter.brain", { method: "HEAD" });
     return res.ok;
   } catch {
     return false;

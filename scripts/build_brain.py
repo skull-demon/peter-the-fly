@@ -40,7 +40,7 @@ from brainpack.subgraph import (
 )
 
 PUBLIC_BRAIN_DIR = Path(__file__).resolve().parents[1] / "public" / "brain"
-BUNDLE_PATH = PUBLIC_BRAIN_DIR / "peter.br"
+BUNDLE_PATH = PUBLIC_BRAIN_DIR / "peter.brain"
 SIDECAR_PATH = PUBLIC_BRAIN_DIR / "peter.brain.json"
 
 
@@ -197,7 +197,7 @@ def main() -> int:
         regions[r] = regions.get(r, 0) + 1
     sidecar = {
         "dataset": "FAFB v783",
-        "bundle": "/brain/peter.br",
+        "bundle": "/brain/peter.brain",
         "bundle_bytes": BUNDLE_PATH.stat().st_size,
         "built_at": meta["built_at"],
         "sim": meta["sim"],

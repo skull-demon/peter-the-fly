@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:web": "node --test tests/brain.test.mjs",
-    "test:brain": "node tests/brainproof.mjs"
+    "test:brain": "node tests/brainproof.mjs",
+    "test:neurons": "node tests/proof-neurons.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.8",

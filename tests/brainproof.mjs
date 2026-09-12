@@ -40,7 +40,7 @@ execFileSync(process.execPath, [
 const mod = await import(pathToFileURL(OUTFILE).href);
 
 // ---- 1. bundle is real ------------------------------------------------------
-const bundlePath = path.join(ROOT, "public", "brain", "peter.br");
+const bundlePath = path.join(ROOT, "public", "brain", "peter.brain");
 assert.ok(existsSync(bundlePath), "public/brain/peter.br missing - run scripts/build_brain.py");
 const raw = readFileSync(bundlePath);
 const bundle = mod.parseBrainBundle(raw.buffer.slice(raw.byteOffset, raw.byteLength));
