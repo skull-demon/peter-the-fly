@@ -2,6 +2,7 @@ import type { RefObject } from "react";
 import { ArrowIcon, Flourish } from "./Marks";
 import BenchScene from "./BenchScene";
 import NeuronView from "./NeuronView";
+import BrainMap from "./BrainMap";
 import type { SimResult } from "../brain/sim";
 import type { PeterTelemetry } from "../brain/talk";
 
@@ -42,11 +43,17 @@ export default function LeftPanel({ active, motion, sceneRef, onInspect, brainSt
         <Flourish />
       </header>
       <BenchScene active={active} motion={motion} sceneRef={sceneRef} />
-      {sim && (
-        <div className="bench-raster-overlay" aria-hidden="false">
-          <NeuronView telemetry={telemetry ?? null} sim={sim} compact />
-        </div>
-      )}
+      {/* Live neuron activity, always on the front page: raster over the
+          bench photo, full activation map + raster below. */}
+      <div className="neuron-strip">
+        <NeuronView telemetry={telemetry ?? null} sim={sim ?? null} compact />
+        {!sim && (
+          <p className="neuron-strip-idle eyebrow">
+            NEURONS AT REST · SEND A MESSAGE TO SEE REAL SPIKES HERE
+          </p>
+        )}
+      </div>
+      <BrainMap telemetry={telemetry ?? null} active={active} />
       <div className="specimen-caption">
         <span><span className="caption-number">Fig. 01</span> The thinking apparatus.</span>
         <button className="text-control inspect-control" onClick={onInspect}>Inspect in 3D <ArrowIcon diagonal /></button>

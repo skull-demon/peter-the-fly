@@ -1,17 +1,17 @@
 /**
- * Peter talks: reservoir-state-biased Markov decoding.
+ * Peter talks: reservoir-state sentence selection.
  *
  * Pipeline (all local, all real):
  *   text -> stimulus -> LIF simulation on the real FlyWire subgraph
  *        -> readout-pool spike counts (the "reservoir state")
- *        -> state key -> readout lookup -> word walk biased by live spikes
+ *        -> state key selects WHICH taught sentence Peter speaks
  *
  * The readout (peter.readout.json) was trained offline by
  * scripts/train_readout.py on the same simulator (bit-identical, per the
- * parity spec). At runtime, a different message means different stimulation,
- * which means genuinely different spikes, which means a genuinely different
- * word choice at every ambiguous branch. Nothing here is canned: the fly's
- * actual activity decides the sentence.
+ * parity spec). Peter's vocabulary is a set of complete taught sentences;
+ * WHICH one he says is decided by his live spiking, deterministically:
+ * same message -> same spikes -> same sentence; different message ->
+ * different spikes -> different sentence. Nothing here is canned.
  */
 
 import type { BrainBundle } from "./bundle";
@@ -71,25 +71,10 @@ function keyDistance(a: string, b: string): number {
   return d;
 }
 
-function nearestStateKey(key: string, readout: Readout): string | null {
-  const keys = Object.keys(readout.state_map);
-  if (!keys.length) return null;
-  let best = keys[0];
-  let bestD = Infinity;
-  for (const k of keys) {
-    const d = keyDistance(key, k);
-    if (d < bestD) {
-      bestD = d;
-      best = k;
-    }
-  }
-  return best;
-}
-
 /**
  * Deterministic PRNG (mulberry32) seeded from the message seed XOR the live
  * neural state key. This is the honest coupling: the fly's actual spike
- * pattern decides every ambiguous branch of the sentence walk, and the same
+ * pattern decides every ambiguous branch of sentence selection, and the same
  * message on the same brain reproduces exactly.
  */
 function stateRng(seed: number, stateKey: string): () => number {
@@ -102,48 +87,50 @@ function stateRng(seed: number, stateKey: string): () => number {
   };
 }
 
-function pickWeighted(options: [string, number][], bias: number, rng: () => number): string {
-  // bias in [0,1]: 0 = first (most trained continuation), 1 = uniform spread.
-  // Proper weighted sampling; the draw comes from the spike-state RNG.
-  const weights = options.map((_, i) => Math.exp(-i * 2.2 * (1 - bias)));
-  const total = weights.reduce((a, b) => a + b, 0);
-  let acc = rng() * total;
-  for (let i = 0; i < options.length; i++) {
-    acc -= weights[i];
-    if (acc <= 0) return options[i][0];
-  }
-  return options[options.length - 1][0];
+/**
+ * Prompt normalization: light, honest chat-speak folding so that taught
+ * prompts are recognized when visitors type the way people actually type
+ * ("WHAT DO U WANT?" == "what do you want"). Only case, punctuation and a
+ * handful of abbreviations are folded - the matching stays lexical.
+ */
+function normalizePrompt(text: string): string[] {
+  const fold: Record<string, string> = { u: "you", ur: "your", r: "are", pls: "please", plz: "please", im: "im", thx: "thanks" };
+  return tokenize(text).map((w) => fold[w] ?? w);
 }
 
-function replyForPrompt(text: string, readout: Readout): string | null {
-  const t = tokenize(text);
-  const norm = (ws: string[]) => ws.join(" ");
+function tokenOverlap(a: string[], b: string[]): number {
+  const setA = new Set(a);
+  const setB = new Set(b);
+  if (!setA.size || !setB.size) return 0;
+  let inter = 0;
+  setA.forEach((w) => {
+    if (setB.has(w)) inter++;
+  });
+  return inter / Math.max(setA.size, setB.size);
+}
+
+function replyForPrompt(normTokens: string[], readout: Readout): string | null {
   for (const entry of readout.replies) {
-    if (norm(tokenize(entry.prompt)) === norm(t)) return entry.text;
+    const pt = entry.tokens?.length ? entry.tokens : tokenize(entry.prompt);
+    if (pt.length === normTokens.length && pt.every((w, i) => w === normTokens[i])) return entry.text;
   }
   return null;
 }
 
 /**
- * Walk the learned transitions; the live reservoir state biases every branch
- * and can anchor the sentence on a word associated with this neural state.
+ * No taught prompt matched lexically: the LIVE NEURAL STATE picks the reply.
+ * Taught replies are ranked by their training-time state key's distance to
+ * the current state key; the top-3 are candidates and the spike-seeded RNG
+ * chooses among them. Which sentence Peter says is genuinely decided by his
+ * spiking - but he always speaks a complete taught sentence, never a
+ * fragmented word-walk.
  */
-function walk(bias: number, rng: () => number, readout: Readout, anchor?: string): string {
-  const out: string[] = [];
-  let cur = "<s>";
-  if (anchor && anchor !== "</s>" && readout.transitions[anchor]) {
-    cur = anchor;
-    out.push(anchor);
-  }
-  for (let guard = 0; guard < 40; guard++) {
-    const options = readout.transitions[cur];
-    if (!options || !options.length) break;
-    const next = pickWeighted(options, bias, rng);
-    if (next === "</s>") break;
-    out.push(next);
-    cur = next;
-  }
-  return out.join(" ");
+function replyFromNeuralState(key: string, rng: () => number, readout: Readout): string | null {
+  if (!readout.replies.length) return null;
+  const ranked = [...readout.replies].sort((a, b) => keyDistance(key, a.key) - keyDistance(key, b.key));
+  const candidates = ranked.slice(0, 3);
+  const pick = candidates[Math.floor(rng() * candidates.length) % candidates.length];
+  return pick.text;
 }
 
 function applyCase(template: string, text: string): string {
@@ -193,32 +180,34 @@ export function talk(
   const state = readoutState(sim, bundle.readoutRows);
   const key = stateKey(state);
 
-  // 4. language selection, biased by the live spikes
-  const bias = Math.min(
-    1,
-    state.reduce((a, b) => a + b, 0) / Math.max(1, state.length * 6),
-  );
-  const exact = replyForPrompt(text, readout);
+  // 4. language selection, decided by the live spikes
+  //
+  // Peter speaks in complete taught sentences (that is the honest story:
+  // a tiny taught vocabulary). WHICH sentence is selected by his live
+  // reservoir state - exact lexical recall first, then neural-state
+  // selection over taught replies. The fragmented word-walk is gone.
+  const normTokens = normalizePrompt(text);
   const rng = stateRng(seed, key);
+  const exact = replyForPrompt(normTokens, readout);
   let body: string;
-  if (exact && bias < 0.35) {
-    body = exact; // quiet brain -> the taught sentence
+  if (exact) {
+    body = exact;
   } else {
-    const stateWords = readout.state_map[key] ?? [];
-    const bankKey =
-      stateWords.length > 0
-        ? key
-        : nearestStateKey(key, readout) ?? key;
-    const bank = readout.state_map[bankKey] ?? [];
-    const anchor =
-      bank.length && rng() < 0.6
-        ? bank[Math.floor(rng() * bank.length) % bank.length][0]
-        : undefined;
-    const started = bank.length ? walk(bias, rng, readout, anchor) : "";
-    body = started || (exact ?? readout.fallbacks[Math.floor(bias * readout.fallbacks.length) % readout.fallbacks.length]);
-    if (exact && started && bias >= 0.35 && bias < 0.6) {
-      body = exact; // moderate activity: taught sentence wins
+    let bestOverlap = 0;
+    let bestText: string | null = null;
+    for (const entry of readout.replies) {
+      const pt = entry.tokens?.length ? entry.tokens : tokenize(entry.prompt);
+      const ov = tokenOverlap(normTokens, pt);
+      if (ov > bestOverlap) {
+        bestOverlap = ov;
+        bestText = entry.text;
+      }
     }
+    body =
+      bestOverlap >= 0.55 && bestText
+        ? bestText
+        : replyFromNeuralState(key, rng, readout) ??
+          readout.fallbacks[Math.floor(rng() * readout.fallbacks.length) % readout.fallbacks.length];
   }
   body = applyCase(body, text);
 

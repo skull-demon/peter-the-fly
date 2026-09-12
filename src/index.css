@@ -219,7 +219,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid #99734b; outline-offs
 .motion-on .brain-region-fill.is-lit { animation: breathe 2.1s ease-in-out infinite; }
 
 /* ---- spike raster (live neuron view) ------------------------------ */
-.neuron-view { margin-top: 14px; border: 1px solid #ddd2b8; border-radius: 6px; background: #efe8d4; padding: 12px 14px 10px; color: #4a4034; }
+.neuron-view { border: 1px solid #ddd2b8; border-radius: 6px; background: #efe8d4; padding: 12px 14px 10px; color: #4a4034; }
 .neuron-view-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .neuron-view-count { font: 400 8.5px/1.4 var(--font-mono); letter-spacing: .12em; color: #96856e; font-variant-numeric: tabular-nums; }
 .neuron-view-canvas { display: block; width: 100%; height: 190px; }
@@ -231,6 +231,18 @@ button:focus-visible, a:focus-visible { outline: 2px solid #99734b; outline-offs
 .bench-raster-overlay .neuron-view-canvas { height: 74px; }
 .bench-raster-overlay .neuron-view-heading { margin-bottom: 4px; }
 .bench-raster-overlay .neuron-view-count { font-size: 7.5px; }
+
+/* always-on neuron strip + compact brain map on the laboratory panel */
+.neuron-strip { flex: 0 0 auto; margin: 10px 37px 0; position: relative; }
+.neuron-strip .neuron-view { margin: 0; padding: 10px 12px 8px; }
+.neuron-strip .neuron-view-canvas { height: 84px; display: block; width: 100%; }
+.neuron-strip-idle { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #a5947c; pointer-events: none; background: rgba(239, 232, 212, 0.6); border-radius: 6px; }
+.laboratory-panel .brain-map { margin: 10px 37px 0; display: flex; align-items: center; gap: 14px; padding: 10px 14px; }
+.laboratory-panel .brain-map-heading { order: 0; flex: 1; flex-direction: column; align-items: flex-start; gap: 5px; }
+.laboratory-panel .brain-map-svg { order: 1; width: auto; height: 168px; flex-shrink: 0; }
+.laboratory-panel .brain-map-footnote { order: 2; flex-basis: 120px; margin: 0; font-size: 10px; }
+.laboratory-panel .brain-region-label { font-size: 6.5px; }
+.bench-visual { min-height: 150px; }
 
 /* ---- empty transcript ---------------------------------------------- */
 .transcript-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-height: 160px; }
@@ -325,6 +337,10 @@ button:focus-visible, a:focus-visible { outline: 2px solid #99734b; outline-offs
   .connecting-wire { display: none; }
 }
 @media (max-width: 520px) {
+  .neuron-strip { margin: 8px 19px 0; }
+  .laboratory-panel .brain-map { margin: 8px 19px 0; }
+  .laboratory-panel .brain-map-svg { height: 120px; }
+  .laboratory-panel .brain-map-footnote { display: none; }
   .masthead { height: 57px; flex-basis: 57px; margin: 0 20px; }
   .lab-signature { font-size: 7px; gap: 8px; letter-spacing: .13em; }
   .lab-signature .etched-fly { width: 25px; }
