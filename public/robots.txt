@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# Tell crawlers the canonical page is the root — but do not index
+# the raw brain artifacts (they are large binary/JSON files, not pages).
+Disallow: /brain/peter.brain
+Disallow: /brain/peter.readout.json
+Disallow: /brain/peter.shared.json

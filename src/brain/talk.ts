@@ -18,6 +18,19 @@ import type { BrainBundle } from "./bundle";
 import { fnv1a32 } from "./bundle";
 import { simulateBrain, readoutState, stateKey, type SimResult } from "./sim";
 import { stimulusForText, tokenize, semanticAttributes } from "./spikegen";
+import {
+  assertFact,
+  floodLimited,
+  parseQuestion,
+  parseStatement,
+  recordTeach,
+  recallFact,
+  recallReverse,
+  renderFact,
+  securityCheck,
+  type MemoryState,
+  type NeuralTrace,
+} from "./memory";
 
 export type Readout = {
   format: string;
@@ -49,7 +62,20 @@ export type PeterReply = {
   note: string;
   telemetry: PeterTelemetry;
   sim: SimResult;
+  /** What the memory layer did this turn (for the honest UI badge). */
+  memoryEvent: MemoryEvent;
+  /** Memory state AFTER this message (persist by the caller). */
+  memoryAfter: MemoryState;
 };
+
+export type MemoryEvent =
+  | { kind: "none"; detail: string }
+  | { kind: "taught"; detail: string }
+  | { kind: "recalled"; detail: string }
+  | { kind: "conflict"; detail: string }
+  | { kind: "unknown"; detail: string }
+  | { kind: "rejected"; detail: string }
+  | { kind: "flood"; detail: string };
 
 /** Per-message simulation seed (parity spec: identical on the python side). */
 export function msgSeed(text: string): number {
@@ -158,56 +184,124 @@ function regionTally(bundle: BrainBundle, sim: SimResult): Record<string, number
   return regions;
 }
 
+function cap1(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** Record the real neural trace of the simulation that accompanied a fact. */
+function makeTrace(spikeCount: number, topRegion: string, seed: number, key: string): NeuralTrace {
+  return { state_key: key.slice(0, 64), spike_count: spikeCount, top_region: topRegion.slice(0, 40), seed };
+}
+
 /**
  * The full Peter pipeline for one user message.
- * Returns the reply text, a telemetry note for the chat UI, and the full sim.
+ *
+ * Order of business (the brain ALWAYS runs - memory never skips it):
+ *   1. stimulate + simulate the real connectome (every message, no exceptions)
+ *   2. decode the neural state
+ *   3. memory layer: teach (security-gated) / recall / neural answer
+ *   4. every learned fact carries the neural trace of the turn it was learned
+ *
+ * The connectome is never modified by any of this - memory lives in a
+ * separate persistent store (src/brain/memory.ts, localStorage + shared).
  */
 export function talk(
   text: string,
   bundle: BrainBundle,
   readout: Readout,
+  memory: MemoryState,
+  edgeGains?: Float64Array | null,
 ): PeterReply {
   const t0 = performance.now();
 
-  // 1. stimulus from the actual message
+  // 1. stimulus from the actual message (always - even a fact being taught)
   const plan = stimulusForText(text, bundle);
 
-  // 2. spiking simulation on the real connectome
+  // 2. spiking simulation on the real connectome - through any potentiated
+  // synapses (the plasticity overlay). Null gains = factory brain.
   const seed = msgSeed(text);
-  const sim = simulateBrain(bundle, plan.rows, plan.rates, seed, 600);
+  const sim = simulateBrain(bundle, plan.rows, plan.rates, seed, 600, edgeGains ?? null);
 
   // 3. decode the neural state
   const state = readoutState(sim, bundle.readoutRows);
   const key = stateKey(state);
 
-  // 4. language selection, decided by the live spikes
-  //
-  // Peter speaks in complete taught sentences (that is the honest story:
-  // a tiny taught vocabulary). WHICH sentence is selected by his live
-  // reservoir state - exact lexical recall first, then neural-state
-  // selection over taught replies. The fragmented word-walk is gone.
   const normTokens = normalizePrompt(text);
   const rng = stateRng(seed, key);
   const exact = replyForPrompt(normTokens, readout);
+
   let body: string;
-  if (exact) {
-    body = exact;
-  } else {
-    let bestOverlap = 0;
-    let bestText: string | null = null;
-    for (const entry of readout.replies) {
-      const pt = entry.tokens?.length ? entry.tokens : tokenize(entry.prompt);
-      const ov = tokenOverlap(normTokens, pt);
-      if (ov > bestOverlap) {
-        bestOverlap = ov;
-        bestText = entry.text;
+  let memoryEvent: MemoryEvent;
+  let memoryAfter = memory;
+
+  const statement = parseStatement(text);
+  const question = statement ? null : parseQuestion(text);
+
+  if (statement) {
+    // 4a. TEACH - through the full security protocol first.
+    const sec = securityCheck(text);
+    if (!sec.ok) {
+      body = `I will not learn that (${sec.reason}). I only take plain facts, like 'The capital of X is Y.'`;
+      memoryEvent = { kind: "rejected", detail: sec.reason };
+    } else if (floodLimited()) {
+      body = "That is enough new facts for one minute - my tiny memory needs time to settle. Try again shortly.";
+      memoryEvent = { kind: "flood", detail: "rate limit" };
+    } else {
+      const res = assertFact(memory, statement.subj, statement.rel, statement.obj);
+      memoryAfter = res.memory;
+      recordTeach();
+      if (res.rejected) {
+        body = `I will not learn that (${res.rejected}). Keep it to short plain words.`;
+        memoryEvent = { kind: "rejected", detail: res.rejected };
+      } else if (res.conflict) {
+        body =
+          `Learned: ${renderFact(res.change!)} I previously held that ` +
+          `${cap1(res.conflict.subj)} ${res.conflict.rel === "capital" ? "has capital " : "is "}${res.conflict.obj} ` +
+          `- I keep both now, yours at higher confidence.`;
+        memoryEvent = { kind: "conflict", detail: `${statement.subj} · ${statement.rel} · ${statement.obj}` };
+      } else {
+        body = `Learned: ${renderFact(res.change!)} Ask me again - even after you reload the page.`;
+        memoryEvent = { kind: "taught", detail: `${statement.subj} · ${statement.rel} · ${statement.obj}` };
       }
     }
-    body =
-      bestOverlap >= 0.55 && bestText
-        ? bestText
-        : replyFromNeuralState(key, rng, readout) ??
-          readout.fallbacks[Math.floor(rng() * readout.fallbacks.length) % readout.fallbacks.length];
+  } else if (question) {
+    // 4b. RECALL: structured lookup - exact subject+relation, never vibes.
+    let fact = null;
+    if (question.kind === "capital") fact = recallFact(memoryAfter, question.subj, "capital");
+    else if (question.kind === "what") {
+      fact = recallFact(memoryAfter, question.subj, "is") ?? recallReverse(memoryAfter, question.subj, "capital");
+    }
+    if (fact) {
+      body = renderFact(fact);
+      memoryEvent = { kind: "recalled", detail: `${fact.subj} · ${fact.rel} · ${fact.obj} · conf ${fact.conf.toFixed(2)}` };
+    } else {
+      body =
+        "I don't know that yet - nothing in my memory fits, and I refuse to improvise. " +
+        "Teach me: 'The capital of X is Y.'";
+      memoryEvent = { kind: "unknown", detail: "no matching fact" };
+    }
+  } else {
+    // 4c. The usual neural-state sentence selection.
+    if (exact) {
+      body = exact;
+    } else {
+      let bestOverlap = 0;
+      let bestText: string | null = null;
+      for (const entry of readout.replies) {
+        const pt = entry.tokens?.length ? entry.tokens : tokenize(entry.prompt);
+        const ov = tokenOverlap(normTokens, pt);
+        if (ov > bestOverlap) {
+          bestOverlap = ov;
+          bestText = entry.text;
+        }
+      }
+      body =
+        bestOverlap >= 0.55 && bestText
+          ? bestText
+          : replyFromNeuralState(key, rng, readout) ??
+            readout.fallbacks[Math.floor(rng() * readout.fallbacks.length) % readout.fallbacks.length];
+    }
+    memoryEvent = { kind: "none", detail: "" };
   }
   body = applyCase(body, text);
 
@@ -227,6 +321,20 @@ export function talk(
     Object.entries(regions).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "unknown";
   const cats = semanticAttributes(text);
   const simulationMs = Math.round(performance.now() - t0);
+
+  // Stamp the neural trace onto the fact(s) touched this turn - the memory
+  // entry now carries the brain activity that was live while it was learned
+  // or recalled (visible in the UI as the MEMORY TRACE badge).
+  if (memoryEvent.kind === "taught" || memoryEvent.kind === "conflict") {
+    const trace = makeTrace(spikeCount, topRegion, seed, key);
+    const just = memoryAfter.facts.find(
+      (f) => memoryEvent.detail.startsWith(f.subj) && f.trace === undefined,
+    );
+    if (just) {
+      just.trace = trace;
+      memoryAfter = { ...memoryAfter, facts: [...memoryAfter.facts] };
+    }
+  }
 
   const telemetry: PeterTelemetry = {
     dataset: bundle.dataset,
@@ -248,5 +356,5 @@ export function talk(
 
   const note = `FAFB v783 · ${bundle.neuronCount.toLocaleString()} NEURONS · ${spikeCount.toLocaleString()} SPIKES · ${simulationMs}MS`;
 
-  return { text: body, note, telemetry, sim };
+  return { text: body, note, telemetry, sim, memoryEvent, memoryAfter };
 }

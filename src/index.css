@@ -97,6 +97,10 @@ button:focus-visible, a:focus-visible { outline: 2px solid #99734b; outline-offs
 .reset-transcript:hover { color: #6c462d; }
 .reset-confirmation { display: flex; gap: 12px; align-items: center; padding: 0 0 13px; font-size: 11px; color: #88755d; }
 .reset-confirmation button { padding: 3px 0; border-bottom: 1px solid #bdab8f; font: italic 15px var(--font-editorial); }
+.memory-count { border: 0; background: none; padding: 0; cursor: pointer; font: 400 8px var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: #727651; }
+.memory-count:hover { color: #4a4034; text-decoration: underline; text-underline-offset: 2px; }
+.memory-confirm { display: inline-flex; gap: 8px; align-items: center; font: 400 8px var(--font-mono); letter-spacing: .12em; color: #88755d; }
+.memory-confirm button { border: 0; background: none; padding: 0; cursor: pointer; font: inherit; letter-spacing: inherit; text-transform: uppercase; color: #926046; text-decoration: underline; text-underline-offset: 2px; }
 .transcript { flex: 1; min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: #c9bca4 transparent; padding: 1px 8px 6px 0; }
 .message { margin-bottom: 18px; }
 .message-author { height: 17px; display: flex; align-items: center; gap: 8px; font: 400 8px/1 var(--font-mono); letter-spacing: .17em; color: #81715d; }
@@ -233,10 +237,35 @@ button:focus-visible, a:focus-visible { outline: 2px solid #99734b; outline-offs
 .bench-raster-overlay .neuron-view-count { font-size: 7.5px; }
 
 /* always-on neuron strip + compact brain map on the laboratory panel */
-.neuron-strip { flex: 0 0 auto; margin: 10px 37px 0; position: relative; }
-.neuron-strip .neuron-view { margin: 0; padding: 10px 12px 8px; }
-.neuron-strip .neuron-view-canvas { height: 84px; display: block; width: 100%; }
-.neuron-strip-idle { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #a5947c; pointer-events: none; background: rgba(239, 232, 212, 0.6); border-radius: 6px; }
+/* The bench photo stays clean; neuron activity lives behind a button. */
+.caption-controls { display: inline-flex; gap: 14px; }
+.bench-activity-note { margin: 8px 37px 0; color: #a5947c; letter-spacing: .14em; }
+.bench-activity-note .linklike { border: 0; background: none; padding: 0; cursor: pointer; font: inherit; letter-spacing: inherit; text-transform: inherit; color: #926046; text-decoration: underline; text-underline-offset: 2px; }
+
+/* ---- connectome viewer (FlyWire-gallery style) ---------------------- */
+.connectome-dialog { width: min(860px, 94vw); }
+.connectome-dialog .dialog-body { max-height: min(78vh, 720px); overflow: auto; }
+.viewer-intro { font: italic 13.5px/1.6 var(--font-editorial); color: #6f6353; margin: 6px 0 12px; }
+.viewer-intro a { color: #926046; }
+.viewer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.viewer-filter { display: inline-flex; border: 1px solid #ddd2b8; border-radius: 5px; overflow: hidden; }
+.viewer-filter button { border: 0; background: none; padding: 6px 10px; font: 400 8.5px var(--font-mono); letter-spacing: .12em; color: #837561; cursor: pointer; }
+.viewer-filter button.is-on { background: #e7dfc8; color: #4a4034; }
+.viewer-total { color: #a5947c; }
+.viewer-canvas { width: 100%; height: 380px; display: block; border-radius: 8px; border: 1px solid #2a2f38; background: #10141a; }
+.viewer-empty { font: italic 14px/1.6 var(--font-editorial); color: #8a7960; padding: 18px 4px; }
+.viewer-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 8px 0 4px; }
+.legend-item { display: inline-flex; align-items: center; gap: 5px; font: 400 8px var(--font-mono); letter-spacing: .1em; color: #6f6353; }
+.legend-item i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.viewer-bottom { display: flex; gap: 16px; margin-top: 14px; align-items: stretch; flex-wrap: wrap; }
+.viewer-map { flex: 0 1 300px; }
+.viewer-map .brain-map { margin: 0; height: 100%; }
+.viewer-io { flex: 1 1 300px; border-left: 1px solid #e2d8bf; padding-left: 16px; display: flex; flex-direction: column; gap: 8px; }
+.viewer-io .eyebrow { color: #a5947c; }
+.viewer-prompt { margin: 0; font: 400 12px/1.5 var(--font-mono); color: #6f6353; }
+.viewer-reply { margin: 0; font: italic 17px/1.55 var(--font-editorial); color: #3e352a; border-left: 2px solid #c9b98f; padding-left: 12px; }
+.viewer-telemetry { color: #a5947c; }
+
 .laboratory-panel .brain-map { margin: 10px 37px 0; display: flex; align-items: center; gap: 14px; padding: 10px 14px; }
 .laboratory-panel .brain-map-heading { order: 0; flex: 1; flex-direction: column; align-items: flex-start; gap: 5px; }
 .laboratory-panel .brain-map-svg { order: 1; width: auto; height: 168px; flex-shrink: 0; }
@@ -337,8 +366,9 @@ button:focus-visible, a:focus-visible { outline: 2px solid #99734b; outline-offs
   .connecting-wire { display: none; }
 }
 @media (max-width: 520px) {
-  .neuron-strip { margin: 8px 19px 0; }
+  .bench-activity-note { margin: 8px 19px 0; }
   .laboratory-panel .brain-map { margin: 8px 19px 0; }
+  .viewer-canvas { height: 300px; }
   .laboratory-panel .brain-map-svg { height: 120px; }
   .laboratory-panel .brain-map-footnote { display: none; }
   .masthead { height: 57px; flex-basis: 57px; margin: 0 20px; }

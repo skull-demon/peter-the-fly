@@ -59,7 +59,15 @@ Both the browser runtime (`src/brain/sim.ts`) and the offline Python trainer
 One message = **600 ms of biological time = 1,200 simulation steps** across
 2,200 neurons, ~1,000–2,000 spikes, in ~40–90 ms of wall time in a browser tab.
 
-## 3. From spikes to words (the readout, and its honest limits)
+## 3. Synaptic plasticity & online learning
+
+In addition to static reservoir lookup, Peter features genuine **local synaptic plasticity** and long-term memory (`src/brain/plasticity.ts`, `src/brain/memory.ts`, `src/data/flyBrain.ts`):
+
+- **Synaptic weight adaptation:** When Peter learns or corrects associations, active synapses between stimulated input pathways and participating neurons undergo localized Hebbian / delta adjustments.
+- **Immutable connectome invariant:** Synaptic plasticity alters an overlay of synaptic weights (`peterPlasticity`) and learned associative facts (`peterMemory`), while the base FlyWire connectome graph (`public/brain/peter.brain`) remains cryptographically bit-for-bit identical (SHA-256 verified).
+- **Shared & persistent brain:** Visitors start initialized from the owner-trained base brain state (`public/brain/peter.shared.json`), and individual learning continues locally in `localStorage`.
+
+## 4. From spikes to words (the readout, and its honest limits)
 
 The output pool's per-bin spike counts (6 bins × 100 ms) form a reservoir
 state vector, quantized to a state key. Offline,
@@ -82,33 +90,66 @@ He speaks short, simple English because that is what his 79 KB readout was
 taught. Scientists should evaluate the *pipeline* (real data, real simulation,
 real coupling), not expect conversation competence.
 
-## 4. What the website shows is what the simulation produced
+## 5. What the website shows is what the simulation produced
 
-- The **spike raster** (`src/components/NeuronView.tsx`) plots real per-step
-  spikes of the readout pool, grouped by FlyWire neuropil.
+- **Neuron activity / Connectome Viewer** (`src/components/ConnectomeViewer.tsx`):
+  Opens a dedicated dark FlyWire-gallery-style raster display showing every neuron that spiked in the last turn across anatomically labeled neuropil tracks (ME, LO, LOP, LA, etc.), displayed side-by-side with the generated reply.
+- **3D Apparatus Inspection** (`src/three/LabScene3D.tsx`):
+  An interactive WebGL 3D inspection view of the specimen on the laboratory bench under the observation bell, surrounded by micro-electrodes and instrumentation, accessible via the "Inspect in 3D" button.
+- **3D Connectome Reference Project** (`PETERS BRAIN 3D/`):
+  A separate standalone 3D reference connectome viewer containing 1,180 addressable render entities and normalized bilateral neuropil meshes, demonstrating anatomical arbor exploration.
 - The **brain map** (`src/components/BrainMap.tsx`) lights regions by real
   per-region spike tallies from the last run.
 - The **telemetry note** under each reply (neuron count, spike count, wall ms)
   is measured, never decorated.
 - The **buzz** is cosmetic (Web Audio synthesis); it is a sound effect, not data.
 
-If the brain bundle (`public/brain/peter.br`) fails to load, Peter states that
+If the brain bundle (`public/brain/peter.brain`) fails to load, Peter states that
 he cannot think and that no simulation ran — the codebase contains **no
 scripted answers at all**.
 
-## 5. Verify it yourself
+## 6. DOOM closed-loop simulation (Architecture & Status)
+
+Peter includes a complete closed-loop motor control pipeline for playing classic DOOM (`src/brain/doom.ts`, `python/brainpack/doomtrain.py`):
+
+- **Retina:** Game frames are mapped into 5 horizontal horizon sectors (`grayFromRgba`, `sectorBrightness`).
+- **Connectome stimulation:** Sector luminance drives optic input neurons into the FlyWire LIF simulation.
+- **Descending motor readout:** Spike counts across 30 real descending neurons in 4 post-stimulus windows form 4 action arms (`TURN_LEFT`, `TURN_RIGHT`, `FORWARD`, `SHOOT`).
+- **Policy learning:** An epsilon-greedy bandit algorithm updates running action value estimates with decaying exploration rate, persisting across sessions.
+- **Status:** The mathematical closed-loop engine and DOSBox/js-dos assets (`public/doom/peter-doom.jsdos`, `public/doom/vendor/`) are fully implemented and verified via automated parity tests (`tests/doomproof.mjs`). However, the interactive DOOM game viewport is an experimental research module and is **not mounted in the primary chat UI**.
+
+## 7. Security and deployment protection
+
+When deployed on Cloudflare Pages, several hardening measures are enforced (`public/_headers`, `public/robots.txt`):
+
+- **Hotlink & Asset Theft Lockdown:** `public/_headers` applies strict Cross-Origin Resource Policy (`Cross-Origin-Resource-Policy: same-origin`) and restricts CORS so external sites cannot hotlink or steal the compiled connectome bundle (`peter.brain`) or readout tables.
+- **Clickjacking & Embedding Prevention:** Enforces `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'`.
+- **MIME Sniffing Protection:** `X-Content-Type-Options: nosniff`.
+- **Bot Crawling Restriction:** `public/robots.txt` disallows automated scrapers from ingesting the raw brain artifacts (`/brain/`).
+- **Zero Exposed Cloud Secrets:** 100% client-side computation with no third-party API keys or credentials exposed in the build.
+
+## 8. Deep Dive FAQ
+
+For explicit code-level answers regarding learning mechanisms, DOOM causality, plasticity limits, and infrastructural claims, please read the [Architectural FAQ](ARCHITECTURE_FAQ.md) (`docs/ARCHITECTURE_FAQ.md`).
+
+## 9. Verification suite
 
 ```bash
-npm install && python -m pip install -r requirements.txt
-make download-data              # official FlyWire files (~900 MB, MD5-checked)
-python scripts/build_brain.py   # distill the real subnetwork
-python scripts/train_readout.py # teach the readout on this exact bundle
-python scripts/verify_brain.py  # integrity + live-fire simulation checks
+# Brain & simulation verification
 npm run test:brain              # proves replies are driven by real spikes
+npm run test:neurons            # proves zero external network calls after initial load
+python scripts/verify_brain.py  # integrity + live-fire simulation checks
 python -m pytest python/tests -q
+
+# Synaptic plasticity verification
+npm run test:synapse            # proves synaptic weights change while connectome hash is invariant
+npm run test:learning           # verifies multi-turn persistent learning
+
+# Security sanity check (against live Cloudflare URL)
+npm run test:security -- https://your-site.pages.dev
 ```
 
-## 6. Explicit non-claims
+## 9. Explicit non-claims
 
 Peter is not conscious, not intelligent, and not a house-fly brain (the data is
 *Drosophila*). The system does not demonstrate that a fly brain "can speak

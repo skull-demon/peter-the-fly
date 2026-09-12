@@ -5,6 +5,7 @@ import LeftPanel from "./components/LeftPanel";
 import Dialog from "./components/Dialog";
 import BrainMap from "./components/BrainMap";
 import NeuronView from "./components/NeuronView";
+import ConnectomeViewer from "./components/ConnectomeViewer";
 import BootScreen from "./components/BootScreen";
 import Disclosure from "./components/Disclosure";
 import { ArrowIcon, EtchedFly, Flourish, PauseIcon, SoundIcon } from "./components/Marks";
@@ -13,6 +14,7 @@ import { loadPeterRuntime } from "./brain/load";
 import { simulateBrain, readoutState, type SimResult } from "./brain/sim";
 import { stimulusForText } from "./brain/spikegen";
 import type { PeterTelemetry } from "./brain/talk";
+import { hydrateSharedBrain } from "./data/flyBrain";
 import { initBuzzUnlock, setSoundEnabled } from "./utils/buzz";
 
 const LabScene3D = lazy(() => import("./three/LabScene3D"));
@@ -36,10 +38,13 @@ export default function App() {
   const [showDisclosure, setShowDisclosure] = useState(() => !sessionStorage.getItem("flybrain-disclosure-v1"));
   const [telemetry, setTelemetry] = useState<PeterTelemetry | null>(null);
   const [sim, setSim] = useState<SimResult | null>(null);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [lastExchange, setLastExchange] = useState<{ prompt: string; reply: string } | null>(null);
   const [soundOn, setSoundOn] = useState(() => typeof localStorage !== "undefined" && localStorage.getItem("peter-sound-v1") === "on");
 
   useEffect(() => {
     initBuzzUnlock();
+    hydrateSharedBrain(); // visitors start from the owner-trained brain
   }, []);
 
   const handleTelemetry = (t: PeterTelemetry) => {
@@ -135,6 +140,7 @@ export default function App() {
           motion={motion}
           sceneRef={sceneRef}
           onInspect={() => setInspectorOpen(true)}
+          onOpenBrain={() => setViewerOpen(true)}
           brainStatus={brainStatus}
           brainCounts={brainCounts}
           sim={sim}
@@ -147,6 +153,7 @@ export default function App() {
           brainStatus={brainStatus}
           onTelemetry={handleTelemetry}
           onSim={handleSim}
+          onExchange={(prompt, reply) => setLastExchange({ prompt, reply })}
         />
       </main>
 
@@ -186,6 +193,15 @@ export default function App() {
         <div className="notes-entry"><span>03</span><div><h3>What is actually running</h3><p>Your words become stimulation of input neurons; the Leaky Integrate-and-Fire simulation runs on the real wiring; the spike pattern of the output pool selects Peter's words. If the brain bundle is missing, Peter says so — he never improvises. Not conscious, and honest about it.</p></div></div>
         <p className="handwritten note-signoff">It appears to understand language. Further tea is required.</p>
       </Dialog>
+
+      <ConnectomeViewer
+        open={viewerOpen}
+        onClose={() => setViewerOpen(false)}
+        telemetry={telemetry}
+        sim={sim}
+        lastPrompt={lastExchange?.prompt ?? null}
+        lastReply={lastExchange?.reply ?? null}
+      />
 
       <Dialog open={inspectorOpen} onClose={() => setInspectorOpen(false)} title="Inspect the apparatus in 3D" className="inspection-dialog">
         <div className="inspection-heading">

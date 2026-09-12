@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { askPeterOrScripted, newMessage, type Message } from "../data/flyBrain";
 import type { SimResult } from "../brain/sim";
 import type { PeterTelemetry } from "../brain/talk";
+import { memorySize } from "../brain/memory";
+import { plasticSynapseCount, resetPeterPlasticity, resetPeterMemory } from "../data/flyBrain";
 import { ArrowIcon, EtchedFly } from "./Marks";
 import { playBuzz } from "../utils/buzz";
 
@@ -15,14 +17,39 @@ type Props = {
   onTelemetry?: (t: PeterTelemetry) => void;
   /** fired with the raw simulation so the UI can draw the real spike raster */
   onSim?: (sim: SimResult) => void;
+  /** fired with the (prompt, reply) pair so the connectome viewer can show the exchange */
+  onExchange?: (prompt: string, reply: string) => void;
 };
+
+/** Append the honest memory badge to the telemetry note. */
+function replyNoteWithMemory(reply: { note: string; memoryEvent?: { kind: string; detail: string } }): string {
+  if (!reply.memoryEvent || reply.memoryEvent.kind === "none") return reply.note;
+  const badge =
+    reply.memoryEvent.kind === "taught" ? "LEARNED" :
+    reply.memoryEvent.kind === "recalled" ? "RECALLED" :
+    reply.memoryEvent.kind === "conflict" ? "CONFLICT KEPT BOTH" :
+    reply.memoryEvent.kind === "unknown" ? "UNKNOWN - NOT FAKED" :
+    reply.memoryEvent.kind === "rejected" ? "REFUSED - SECURITY" :
+    reply.memoryEvent.kind === "flood" ? "RATE LIMITED" : "";
+  return badge ? `${reply.note} · ${badge}` : reply.note;
+}
+
+/** Small helper the UI re-renders on: how many facts Peter currently holds. */
+function useMemoryCount(): number {
+  const [count, setCount] = useState(() => memorySize());
+  useEffect(() => {
+    (window as unknown as { __peterMemoryHook?: () => void }).__peterMemoryHook = () => setCount(memorySize());
+    return () => { delete (window as unknown as { __peterMemoryHook?: () => void }).__peterMemoryHook; };
+  }, []);
+  return count;
+}
 
 /**
  * The transcript starts EMPTY. There is no seed conversation and nothing is
  * persisted: every word Peter says is produced live by the spiking
  * simulation, and when you leave, it is gone — like real speech.
  */
-export default function ChatPanel({ active, onActivity, portRef, brainStatus = "loading", onTelemetry, onSim }: Props) {
+export default function ChatPanel({ active, onActivity, portRef, brainStatus = "loading", onTelemetry, onSim, onExchange }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -30,6 +57,8 @@ export default function ChatPanel({ active, onActivity, portRef, brainStatus = "
   const [announcement, setAnnouncement] = useState("");
   const [confirmReset, setConfirmReset] = useState(false);
   const brainLive = brainStatus === "live";
+  const memCount = useMemoryCount();
+  const [confirmForget, setConfirmForget] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const timeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -75,9 +104,11 @@ export default function ChatPanel({ active, onActivity, portRef, brainStatus = "
         const reply = await askPeterOrScripted(text);
         if (reply.real && reply.telemetry && onTelemetry) onTelemetry(reply.telemetry);
         if (reply.real && reply.sim && onSim) onSim(reply.sim);
+        if (reply.real) (window as unknown as { __peterMemoryHook?: () => void }).__peterMemoryHook?.();
+        if (reply.real) onExchange?.(text, reply.text);
         // The buzz IS the simulation: it runs only while Peter speaks.
         if (reply.real) stopBuzz.current = playBuzz(active);
-        const message = newMessage("fly", "", reply.note);
+        const message = newMessage("fly", "", replyNoteWithMemory(reply));
         setStreamId(message.id);
         setMessages((previous) => [...previous, message]);
         let characters = 0;
@@ -195,6 +226,22 @@ export default function ChatPanel({ active, onActivity, portRef, brainStatus = "
           <div className="composer-meta">
             <span><i className={`status-dot ${active ? "working" : ""}`} />{active ? "NEURAL SIGNAL: TRANSLATING" : "NEURAL SIGNAL: STABLE"}</span>
             <span title={brainLive ? "FlyWire FAFB v783 connectome (2,200-neuron visual-pathway subnetwork) simulated locally in your browser" : "Brain bundle not found - Peter cannot answer until it is rebuilt"}>{brainLive ? "FLYWIRE v783 · LIVE" : brainStatus === "loading" ? "CONNECTOME LOADING" : "CONNECTOME OFFLINE"}</span>
+            {confirmForget ? (
+              <span className="memory-confirm">
+                <span>Forget what?</span>
+                <button onClick={() => { resetPeterMemory(); setConfirmForget(false); (window as unknown as { __peterMemoryHook?: () => void }).__peterMemoryHook?.(); }} title="Erase learned facts (synaptic learning stays)">FACTS</button>
+                <button onClick={() => { resetPeterMemory(); resetPeterPlasticity(); setConfirmForget(false); (window as unknown as { __peterMemoryHook?: () => void }).__peterMemoryHook?.(); }} title="Erase facts AND potentiated synapses - factory brain">EVERYTHING</button>
+                <button onClick={() => setConfirmForget(false)}>KEEP</button>
+              </span>
+            ) : (
+              <button
+                className="memory-count"
+                onClick={() => setConfirmForget(true)}
+                title="Peter's learned facts (browser storage) and potentiated synapses (the plastic brain). Neither ever modifies the canonical FlyWire connectome."
+              >
+                MEMORY · {memCount} FACT{memCount === 1 ? "" : "S"} · {plasticSynapseCount().toLocaleString()} SYNAPSES
+              </button>
+            )}
           </div>
         </form>
         <p className="chat-postscript">Please be patient. It has a very small brain.</p>

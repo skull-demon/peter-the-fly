@@ -1,0 +1,56 @@
+# Cloudflare Pages HTTP response headers.
+# These apply to the DEPLOYED site. The dist/ build copies this file verbatim.
+#
+# Protection goals:
+#   1. Brain artifacts (.brain / .readout.json) cannot be fetched by
+#      third-party origins (CORS lockdown) — stops hotlinking your trained work.
+#   2. The page cannot be iframed by another site (clickjacking defence).
+#   3. Browser security hygiene: no MIME sniffing, no referrer leakage,
+#      strict transport, permissions policy.
+#   4. CSP blocks eval + inline scripts (the bundle is a single inlined file,
+#      so unsafe-inline is needed for the style; scripts are sha-hashed by Vite).
+#      Adjust the script-src if Vite emits a nonce.
+#
+# Cloudflare Pages reads this file from the ROOT of the output directory.
+# See: https://developers.cloudflare.com/pages/configuration/headers/
+
+# ── Brain artifacts: same-origin requests only ─────────────────────────────
+# Any fetch/XHR from a foreign origin (e.g. someone embedding your brain in
+# their project) is blocked by the browser before the bytes leave Cloudflare.
+/brain/*
+  Access-Control-Allow-Origin: same-origin
+  X-Content-Type-Options: nosniff
+  Cache-Control: public, max-age=31536000, immutable
+
+# ── Public JSON metadata (non-sensitive, but still same-origin) ─────────────
+/brain/*.json
+  Access-Control-Allow-Origin: same-origin
+  X-Content-Type-Options: nosniff
+  Cache-Control: public, max-age=3600
+
+# ── Main application ────────────────────────────────────────────────────────
+/*
+  # Strict Transport Security: force HTTPS for 1 year
+  Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+
+  # Never allow this page to be embedded in an <iframe> on another domain
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'
+
+  # Block MIME-type sniffing
+  X-Content-Type-Options: nosniff
+
+  # Don't leak the Referer header to external sites
+  Referrer-Policy: same-origin
+
+  # Restrict browser features that are never used by the app
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=()
+
+  # Basic XSS filter (legacy browsers)
+  X-XSS-Protection: 1; mode=block
+
+  # Cross-Origin policies: isolate the page so SharedArrayBuffer works if
+  # ever needed, and prevent Spectre-style side-channel reads of the brain.
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Resource-Policy: same-origin

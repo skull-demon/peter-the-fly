@@ -84,6 +84,12 @@ function buildEdgeIndex(bundle: BrainBundle): EdgeIndex {
 /**
  * Simulate the connectome. Stimulus rows/rates mirror the python trainer.
  * durationMs defaults to 600 (6 bins); window is the first 120 ms.
+ *
+ * edgeGains: optional per-edge weight multipliers (the plasticity overlay).
+ * Null/undefined = untouched, bit-identical to the parity spec. A gain of
+ * exactly 1.0 also multiplies to the identical value, so only synapses that
+ * have genuinely been potentiated change the spike outcome - that is the
+ * "learning changes future brain activity" mechanism.
  */
 export function simulateBrain(
   bundle: BrainBundle,
@@ -91,6 +97,7 @@ export function simulateBrain(
   stimRates: ArrayLike<number>,
   seed: number,
   durationMs = 600,
+  edgeGains?: Float64Array | null,
 ): SimResult {
   const n = bundle.neuronCount;
   const steps = Math.floor(durationMs / DT_MS);
@@ -132,7 +139,9 @@ export function simulateBrain(
         if (!edges) continue;
         for (const e of edges) {
           if (rand01(seed, t, e, K_RELEASE_A, K_RELEASE_B) < bundle.edgesProb[e]) {
-            const w = bundle.edgesWeight[e] * W_GAIN;
+            const w = edgeGains
+              ? bundle.edgesWeight[e] * edgeGains[e] * W_GAIN
+              : bundle.edgesWeight[e] * W_GAIN;
             if (bundle.edgesSign[e] < 0) {
               current[bundle.edgesTgt[e]] -= w * INH_SCALE;
             } else {

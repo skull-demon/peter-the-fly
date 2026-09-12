@@ -1,8 +1,6 @@
 import type { RefObject } from "react";
 import { ArrowIcon, Flourish } from "./Marks";
 import BenchScene from "./BenchScene";
-import NeuronView from "./NeuronView";
-import BrainMap from "./BrainMap";
 import type { SimResult } from "../brain/sim";
 import type { PeterTelemetry } from "../brain/talk";
 
@@ -11,6 +9,8 @@ type Props = {
   motion: boolean;
   sceneRef: RefObject<HTMLDivElement | null>;
   onInspect: () => void;
+  /** open the connectome viewer (neuron activity + brain map + last output) */
+  onOpenBrain: () => void;
   /** live brain status from the real runtime (optional: defaults keep the design) */
   brainStatus?: "loading" | "live" | "fallback";
   brainCounts?: { neurons: number; edges: number; dataset: string } | null;
@@ -19,7 +19,7 @@ type Props = {
   telemetry?: PeterTelemetry | null;
 };
 
-export default function LeftPanel({ active, motion, sceneRef, onInspect, brainStatus = "loading", brainCounts, sim, telemetry }: Props) {
+export default function LeftPanel({ active, motion, sceneRef, onInspect, onOpenBrain, brainStatus = "loading", brainCounts, sim, telemetry }: Props) {
   const connectomeLabel =
     brainStatus === "live"
       ? "CONNECTOME ONLINE"
@@ -43,21 +43,20 @@ export default function LeftPanel({ active, motion, sceneRef, onInspect, brainSt
         <Flourish />
       </header>
       <BenchScene active={active} motion={motion} sceneRef={sceneRef} />
-      {/* Live neuron activity, always on the front page: raster over the
-          bench photo, full activation map + raster below. */}
-      <div className="neuron-strip">
-        <NeuronView telemetry={telemetry ?? null} sim={sim ?? null} compact />
-        {!sim && (
-          <p className="neuron-strip-idle eyebrow">
-            NEURONS AT REST · SEND A MESSAGE TO SEE REAL SPIKES HERE
-          </p>
-        )}
-      </div>
-      <BrainMap telemetry={telemetry ?? null} active={active} />
       <div className="specimen-caption">
         <span><span className="caption-number">Fig. 01</span> The thinking apparatus.</span>
-        <button className="text-control inspect-control" onClick={onInspect}>Inspect in 3D <ArrowIcon diagonal /></button>
+        <span className="caption-controls">
+          <button className="text-control inspect-control brain-view-control" onClick={onOpenBrain} disabled={!sim} title={sim ? "Every neuron that fired, and Peter's last output" : "Send a message first - the view opens after the first simulation"}>
+            Neuron activity <ArrowIcon diagonal />
+          </button>
+          <button className="text-control inspect-control" onClick={onInspect}>Inspect in 3D <ArrowIcon diagonal /></button>
+        </span>
       </div>
+      {telemetry && (
+        <p className="bench-activity-note eyebrow">
+          LAST TRANSMISSION · {telemetry.spike_count.toLocaleString()} SPIKES · {telemetry.active_neurons.toLocaleString()} NEURONS ACTIVE · <button className="linklike" onClick={onOpenBrain}>SEE THE NEURONS</button>
+        </p>
+      )}
       <footer className="laboratory-readouts">
         <dl>
           <div><dt>NEURONS SIMULATED</dt><dd>{neurons}</dd></div>
