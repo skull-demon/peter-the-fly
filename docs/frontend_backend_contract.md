@@ -23,8 +23,8 @@ source of truth; nothing visual was redesigned.
 
 | Frontend component | Existing behavior | Engine now drives it | Contract |
 | --- | --- | --- | --- |
-| `ChatPanel.tsx` `transmit()` | local regex engine, fake notes | `talk()` in `src/brain/talk.ts` via `askPeterOrScripted()` | input: user text; effect: real spiking sim on `peter.br`; output: `{text, note, real}`; scripted fallback only if bundle missing (note labeled `SCRIPTED DEMO`) |
-| `ChatPanel.tsx` composer meta | hard-coded `LOCAL DEMONSTRATION` | `probeBrainAvailable()` | label shows `FLYWIRE v783 · IN-BROWSER` when bundle present, else `SCRIPTED FALLBACK · LOCAL` |
+| `ChatPanel.tsx` `transmit()` | local regex engine, fake notes (DELETED) | `talk()` in `src/brain/talk.ts` via `askPeterOrScripted()` | input: user text; effect: real spiking sim on `peter.br`; output: `{text, note, real, sim}`. No scripted fallback exists - if the bundle is missing, Peter says no simulation ran |
+| `ChatPanel.tsx` composer meta | hard-coded `LOCAL DEMONSTRATION` | `brainStatus` prop from App | label shows `FLYWIRE v783 · LIVE` when the bundle is loaded, `CONNECTOME LOADING`/`CONNECTOME OFFLINE` otherwise |
 | `ChatPanel.tsx` streaming | char-interval reveal | unchanged (theatrical reveal of the real reply) | text arrives complete; reveal speed untouched |
 | `LeftPanel.tsx` readouts | hard-coded `139,255 / 50M+ / Local` | optional props `brainStatus`, `brainCounts` | neurons count = simulated subgraph size from bundle meta when live; falls back to the design's default copy otherwise |
 | `LeftPanel.tsx` connectome dot | static `CONNECTOME ONLINE` | `status-dot.online/offline/loading` | reflects real runtime status; CSS addition only (3 lines, same palette) |
@@ -52,9 +52,11 @@ CHAT UI (existing reveal animation)
 
 `FAFB v783 · {neurons_simulated} NEURONS · {spike_count} SPIKES · {simulation_ms}MS`
 
-All numbers are measured from the actual simulation run. The scripted
-fallback labels its notes `SCRIPTED DEMO · …` so a demo can never be
-mistaken for the real pipeline.
+All numbers are measured from the actual simulation run. There is no scripted
+path anymore; a missing bundle produces an explicit "no simulation ran" reply
+(note prefix `CONNECTOME OFFLINE · NO SIMULATION RAN · NO FABRICATED REPLY`).
+The reply also carries the raw `sim` (per-step spikes), which the spike-raster
+view (`NeuronView.tsx`) renders.
 
 ## 5. HTTP surface
 
@@ -78,7 +80,7 @@ exactly the dynamics the visitor's browser runs.
 
 ## 7. Honesty rules encoded in the contract
 
-- If the bundle is missing → scripted answers are visibly labeled as such.
+- If the bundle is missing → Peter refuses to answer and says no simulation ran (no scripted answers exist).
 - Notes never show numbers that were not measured.
 - Field notes claim: real connectome map, real spikes, taught words,
   not conscious, not a house-fly brain (it is Drosophila data).

@@ -31,3 +31,19 @@ export function PauseIcon({ paused }: { paused: boolean }) {
 export function CloseIcon() {
   return <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" stroke="currentColor" strokeWidth="1.2" /></svg>;
 }
+
+export function SoundIcon({ on }: { on: boolean }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M3 8v4h3l4 3.5v-11L6 8H3Z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
+      {on ? (
+        <g stroke="currentColor" strokeWidth="1.1" strokeLinecap="round">
+          <path d="M13 7.5c1.6 1.4 1.6 3.6 0 5" />
+          <path d="M15.5 5.5c2.7 2.5 2.7 6.5 0 9" />
+        </g>
+      ) : (
+        <path d="m13 8 4 4m0-4-4 4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+      )}
+    </svg>
+  );
+}

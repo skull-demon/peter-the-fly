@@ -49,7 +49,7 @@ export default function BootScreen({ brainStatus, neurons, onEnter }: Props) {
   return (
     <div className="boot-screen" role="status" aria-label="Booting the laboratory">
       <div className="boot-inner">
-        <p className="boot-eyebrow">THE FLYBRAIN EXPERIMENT</p>
+        <p className="boot-eyebrow">PETER THE FLY</p>
         <h1 className="boot-title">
           <span className="boot-word-peter">
             Peter
@@ -95,7 +95,7 @@ function bootLine(
 ): string {
   if (i === 0) return "MOUNTING APPARATUS";
   if (i === 1) {
-    if (brainStatus === "fallback") return "CONNECTOME BUNDLE NOT FOUND · SCRIPTED FALLBACK READY";
+    if (brainStatus === "fallback") return "CONNECTOME BUNDLE NOT FOUND · PETER CANNOT SPEAK";
     if (brainStatus === "loading") return "FETCHING CONNECTOME · FLYWIRE FAFB v783";
     return "CONNECTOME LOADED · FLYWIRE FAFB v783";
   }

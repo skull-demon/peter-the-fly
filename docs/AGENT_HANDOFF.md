@@ -1,7 +1,7 @@
 # PETER THE FLY — Agent Handoff
 
 > **For any AI agent (or human) continuing this project.** Read this first.
-> Last updated: 2026-09-12. Everything below reflects the verified state of the repo.
+> Last updated: 2026-09-12 (honesty pass: scripted fallback deleted, Peter-the-Fly rename, live spike raster, buzz). Everything below reflects the verified state of the repo.
 
 ## 0. The one-paragraph pitch
 
@@ -21,7 +21,7 @@ to English words. There is **no cloud LLM, no external inference, no fake data**
 | Where it runs | **Visitor's browser** (TypeScript sim) + static files on **Cloudflare Pages** | User: free hosting, no server |
 | Python's role | **Offline toolchain only** (ingest → build bundle → train readout). Brian2/FastAPI/llama.cpp from the original spec were **dropped** | Cloudflare Workers can't run Python; browser-only keeps it free |
 | Frontend | **Untouched visual design.** Wiring is surgical | Original spec: frontend is source of truth |
-| Frontend fallback | If `public/brain/peter.br` fails to load, chat uses the old scripted engine labeled **"LOCAL DEMONSTRATION"** | Honest degradation, never fakes the real brain |
+| Frontend fallback | **None.** If `public/brain/peter.br` fails to load, Peter states that no simulation ran and refuses to answer. The scripted engine was deleted | Scientists are the audience; nothing is ever faked |
 
 ## 2. Verified facts (as of last green run)
 
@@ -66,7 +66,7 @@ src/brain/                   # BROWSER RUNTIME: bundle.ts (parser), sim.ts (LIF)
 src/components/              # BootScreen, BootFly, Disclosure, BrainMap, ChatPanel,
                              # LeftPanel, Dialog, Marks, DataPathway
 src/three/                   # R3F scene (LabScene3D, Machine, Fly, Wiring, ...)
-src/data/flyBrain.ts         # scripted fallback engine + real-brain bridge
+src/data/flyBrain.ts         # real-brain bridge (scripted engine deleted: brain-only answers)
 public/brain/                # COMMITTED artifacts: peter.br + peter.readout.json
 tests/brainproof.mjs         # runtime proof (npm run test:brain)
 tests/brain.test.mjs         # web unit tests

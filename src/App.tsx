@@ -4,14 +4,16 @@ import DataPathway from "./components/DataPathway";
 import LeftPanel from "./components/LeftPanel";
 import Dialog from "./components/Dialog";
 import BrainMap from "./components/BrainMap";
+import NeuronView from "./components/NeuronView";
 import BootScreen from "./components/BootScreen";
 import Disclosure from "./components/Disclosure";
-import { ArrowIcon, EtchedFly, Flourish, PauseIcon } from "./components/Marks";
+import { ArrowIcon, EtchedFly, Flourish, PauseIcon, SoundIcon } from "./components/Marks";
 import { useMotionPreference } from "./utils/useMotionPreference";
 import { loadPeterRuntime } from "./brain/load";
-import { simulateBrain, readoutState } from "./brain/sim";
+import { simulateBrain, readoutState, type SimResult } from "./brain/sim";
 import { stimulusForText } from "./brain/spikegen";
 import type { PeterTelemetry } from "./brain/talk";
+import { initBuzzUnlock, setSoundEnabled } from "./utils/buzz";
 
 const LabScene3D = lazy(() => import("./three/LabScene3D"));
 
@@ -29,13 +31,29 @@ export default function App() {
   const portRef = useRef<HTMLSpanElement>(null);
   const testTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [brainStatus, setBrainStatus] = useState<"loading" | "live" | "fallback">("loading");
-  const [brainCounts, setBrainCounts] = useState<{ neurons: number; dataset: string } | null>(null);
+  const [brainCounts, setBrainCounts] = useState<{ neurons: number; edges: number; dataset: string } | null>(null);
   const [booted, setBooted] = useState(false);
   const [showDisclosure, setShowDisclosure] = useState(() => !sessionStorage.getItem("flybrain-disclosure-v1"));
   const [telemetry, setTelemetry] = useState<PeterTelemetry | null>(null);
+  const [sim, setSim] = useState<SimResult | null>(null);
+  const [soundOn, setSoundOn] = useState(() => typeof localStorage !== "undefined" && localStorage.getItem("peter-sound-v1") === "on");
+
+  useEffect(() => {
+    initBuzzUnlock();
+  }, []);
 
   const handleTelemetry = (t: PeterTelemetry) => {
     setTelemetry(t);
+  };
+
+  const handleSim = (s: SimResult) => {
+    setSim(s);
+  };
+
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundOn(next);
+    setSoundEnabled(next);
   };
 
   const enterLab = () => {
@@ -55,7 +73,7 @@ export default function App() {
       .then(({ bundle }) => {
         if (cancelled) return;
         setBrainStatus("live");
-        setBrainCounts({ neurons: bundle.neuronCount, dataset: bundle.dataset });
+        setBrainCounts({ neurons: bundle.neuronCount, edges: bundle.edgeCount, dataset: bundle.dataset });
       })
       .catch(() => {
         if (!cancelled) setBrainStatus("fallback");
@@ -101,9 +119,9 @@ export default function App() {
   return (
     <div className={`app-shell ${motion ? "motion-on" : "motion-off"}`} ref={shellRef}>
       <header className="masthead">
-        <a className="lab-signature" href="#flybrain" aria-label="FlyBrain laboratory">
+        <a className="lab-signature" href="#flybrain" aria-label="Peter the Fly laboratory">
           <EtchedFly />
-          <span>THE FLYBRAIN EXPERIMENT</span>
+          <span>PETER THE FLY</span>
         </a>
         <div className="masthead-center" aria-hidden="true">A most unusual conversation.</div>
         <button className="text-control notes-control" onClick={() => setNotesOpen(true)}>
@@ -119,6 +137,8 @@ export default function App() {
           onInspect={() => setInspectorOpen(true)}
           brainStatus={brainStatus}
           brainCounts={brainCounts}
+          sim={sim}
+          telemetry={telemetry}
         />
         <ChatPanel
           active={active}
@@ -126,12 +146,22 @@ export default function App() {
           portRef={portRef}
           brainStatus={brainStatus}
           onTelemetry={handleTelemetry}
+          onSim={handleSim}
         />
       </main>
 
       <footer className="page-footer">
         <span>INDEPENDENT RESEARCH <span className="footer-separator">/</span> EST. 2026</span>
         <span className="footer-aside">Small brain. Unreasonable possibilities.</span>
+        <button
+          className="text-control sound-control"
+          onClick={toggleSound}
+          aria-pressed={soundOn}
+          title={soundOn ? "Mute the fly" : "Unmute the fly (buzz while Peter speaks)"}
+        >
+          <SoundIcon on={soundOn} />
+          {soundOn ? "Sound on" : "Sound off"}
+        </button>
         <button
           className="text-control motion-control"
           onClick={() => setPaused(!paused)}
@@ -151,9 +181,9 @@ export default function App() {
         <h2>Notes from<br /><em>the laboratory.</em></h2>
         <Flourish />
         <p className="notes-intro">One house fly. An unreasonable amount of apparatus.<br />A conversation that probably should not be possible.</p>
-        <div className="notes-entry"><span>01</span><div><h3>The proposition</h3><p>What if a very small biological mind could become a conversational instrument? FlyBrain is a speculative interface for that deliberately improbable idea.</p></div></div>
-        <div className="notes-entry"><span>02</span><div><h3>The specimen</h3><p>A house fly, perfectly at rest. Its fine copper leads pass into an antique neural translator, and the translator passes its findings to you.</p></div></div>
-        <div className="notes-entry"><span>03</span><div><h3>What is actually running</h3><p>Your words stimulate a real slice of the adult fruit-fly connectome (FlyWire FAFB v783), simulated as spiking neurons in this browser. The spikes choose the words. If the brain bundle is missing, a clearly labeled scripted demo answers instead. No cloud, no pretence: it is a fly-brain map, not a house-fly mind, and it is not conscious.</p></div></div>
+        <div className="notes-entry"><span>01</span><div><h3>The proposition</h3><p>Peter is a chatbot whose only computer is a real piece of biology: the FlyWire FAFB v783 fruit-fly connectome, simulated as spiking neurons in your browser. No cloud, no large language model.</p></div></div>
+        <div className="notes-entry"><span>02</span><div><h3>The specimen</h3><p>A 2,200-neuron visual-pathway subnetwork (medulla, lobula, optic lobe junctions — right hemisphere), 71,365 synapse-weighted edges, real transmitter signs. The bench fly is the portrait; the actual neurons are in the spike raster.</p></div></div>
+        <div className="notes-entry"><span>03</span><div><h3>What is actually running</h3><p>Your words become stimulation of input neurons; the Leaky Integrate-and-Fire simulation runs on the real wiring; the spike pattern of the output pool selects Peter's words. If the brain bundle is missing, Peter says so — he never improvises. Not conscious, and honest about it.</p></div></div>
         <p className="handwritten note-signoff">It appears to understand language. Further tea is required.</p>
       </Dialog>
 
@@ -169,6 +199,7 @@ export default function App() {
             </Suspense>
           )}
         </div>
+        <NeuronView telemetry={telemetry} sim={sim} />
         <BrainMap telemetry={telemetry} active={active || testing} />
         <div className="inspection-controls">
           <span className="eyebrow"><i className={`status-dot ${testing ? "working" : ""}`} /> {testing ? "SIGNAL PASSING THROUGH" : "SPECIMEN AT REST"}</span>
